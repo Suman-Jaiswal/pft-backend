@@ -46,7 +46,7 @@ jobs:
 
       - name: Create deployment archive
         run: |
-          tar -czf "${ARCHIVE_NAME}" \
+          tar -czf "${RUNNER_TEMP}/${ARCHIVE_NAME}" \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='node_modules' \
@@ -59,7 +59,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: backend-release
-          path: ${{ env.ARCHIVE_NAME }}
+          path: ${{ runner.temp }}/${{ env.ARCHIVE_NAME }}
           if-no-files-found: error
           retention-days: 7
 
