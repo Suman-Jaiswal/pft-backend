@@ -1,3 +1,4 @@
+import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { PrismaCardRepository } from '@/infrastructure/repositories/prisma-card.repository'
 import { CardEntity, CardStatus } from '@/modules/cards/domain/entities/card.entity'
 import { CardKey } from '@/modules/cards/domain/value-objects/card-key.vo'
@@ -13,7 +14,7 @@ describe('PrismaCardRepository', () => {
           creditLimit: data.creditLimit ?? null,
         })),
       },
-    } as any
+    } as unknown as PrismaService
     const repo = new PrismaCardRepository(prisma)
     const now = new Date()
     const card = new CardEntity(
