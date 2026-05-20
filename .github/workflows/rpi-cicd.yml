@@ -84,6 +84,21 @@ jobs:
       - name: Generate Prisma client
         run: npm run prisma:generate
 
+      - name: Auto-recover failed migrations (optional)
+        if: ${{ secrets.MIGRATION_AUTO_RECOVER == 'true' }}
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          echo "MIGRATION_AUTO_RECOVER enabled; attempting resolve --rolled-back for tracked migrations."
+          for dir in prisma/migrations/*; do
+            name="$(basename "$dir")"
+            if [[ "$name" == "migration_lock.toml" ]]; then
+              continue
+            fi
+            npx prisma migrate resolve --rolled-back "$name" || true
+          done
+
       - name: Migrate production database
         env:
           DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
