@@ -13,8 +13,11 @@ async function bootstrap(): Promise<void> {
   setDefaultResultOrder('ipv4first')
   const app = await NestFactory.create(AppModule)
   app.use(helmet())
+  const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim())
+    : ['http://localhost:5173']
   app.enableCors({
-    origin: ['http://localhost:5173'],
+    origin: allowedOrigins,
     credentials: true,
   })
   app.setGlobalPrefix('api')
