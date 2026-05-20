@@ -51,6 +51,14 @@ If you want to run app locally and only DB in Docker:
 - `docker compose up -d postgres`
 - keep `DATABASE_URL=postgresql://postgres:postgres@localhost:55432/pft_backend`
 
+## CI/CD to Raspberry Pi 5
+
+GitHub Actions pipeline is available for SSH-based deployment to your RPi5:
+
+- Workflow: `.github/workflows/rpi-cicd.yml`
+- Docs: `docs/deployment-rpi5-github-actions.md`
+- Migration runs in Actions against `PROD_DATABASE_URL`; Pi deploy is Docker container restart only.
+
 ## Scripts
 
 - `npm run build`
