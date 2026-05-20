@@ -56,6 +56,41 @@ jobs:
             --exclude='*.log' \
             .
 
+      - name: Checkpoint: Verify artifacts
+        run: |
+          echo "Archive created: ${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
+          ls -lh "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
+
+      - name: Pre-deploy checks and cleanup
+        env:
+          RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
+          RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
+        run: |
+          set -euo pipefail
+          CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
+          PORT="${RPI_APP_PORT:-4000}"
+          echo "Pre-deploy: ensure ${PORT} is free and remove old container ${CONTAINER}"
+
+          if docker ps -a --format '{{.Names}}' | grep -Fxq "$CONTAINER"; then
+            echo "Removing existing container named $CONTAINER"
+            docker rm -f "$CONTAINER" || true
+          fi
+
+          # Find any container binding the host port and remove it
+          BINDING_CONTAINER_IDS=$(docker ps --format '{{.ID}} {{.Ports}}' | awk -v port=":${PORT}" '$0 ~ port {print $1}') || true
+          if [ -n "${BINDING_CONTAINER_IDS:-}" ]; then
+            echo "Found containers binding port ${PORT}: ${BINDING_CONTAINER_IDS}"
+            echo "$BINDING_CONTAINER_IDS" | xargs -r docker rm -f || true
+          fi
+
+      - name: Optional: Run DB migrations
+        if: ${{ secrets.PROD_DATABASE_URL }}
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          echo "Running Prisma migrations against PROD database"
+          npm run prisma:migrate:deploy
+
       - name: Deploy locally on Raspberry Pi
         env:
           APP_DIR: ${{ secrets.RPI_APP_DIR }}
@@ -73,3 +108,30 @@ jobs:
           RELEASE_ID="${RELEASE_ID::12}" \
           RPI_ENV_FILE_CONTENT="${RPI_ENV_FILE_CONTENT:-}" \
           scripts/deploy-rpi.sh
+
+      - name: Post-deploy health check
+        env:
+          RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
+          RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${RPI_APP_PORT:-4000}"
+          CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
+          HEALTH_URL="http://127.0.0.1:${PORT}/health"
+          echo "Waiting for health endpoint: ${HEALTH_URL}"
+          ok=1
+          for i in $(seq 1 6); do
+            if curl -sf "${HEALTH_URL}" > /dev/null; then
+              echo "Health check passed"
+              ok=0
+              break
+            else
+              echo "Attempt ${i}: not healthy yet"
+              sleep 5
+            fi
+          done
+          if [ "${ok}" -ne 0 ]; then
+            echo "Health check failed; dumping last 200 container logs for ${CONTAINER}"
+            docker logs --tail 200 "${CONTAINER}" || true
+            exit 1
+          fi
