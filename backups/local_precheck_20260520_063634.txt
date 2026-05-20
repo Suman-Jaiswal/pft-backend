@@ -1,0 +1,7 @@
+monthlyPlans|9|
+bills|0|
+loans|1|
+cards|5|
+statements|3|
+transactions|207|264364.3800000000001
+pftSetting|1|

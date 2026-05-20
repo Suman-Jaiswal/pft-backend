@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  googleSub    String?  @unique
+  email        String   @unique
+  passwordHash String
+  role         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model MonthlyPlan {
+  id             String   @id @default(cuid())
+  tenantId       String
+  month          Int
+  year           Int
+  rent           Decimal  @default(0)
+  cook           Decimal  @default(0)
+  sip            Decimal  @default(0)
+  bills          Decimal  @default(0)
+  basicCcSpent   Decimal  @default(0)
+  loanPayments   Json?
+  investment     Decimal  @default(0)
+  liquidSaved    Decimal  @default(0)
+  otherExpenses  Decimal  @default(0)
+  customExpenses Json?
+  salary         Decimal  @default(0)
+  otherIncome    Decimal  @default(0)
+  banks          Json?
+  remarks        String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String
+  updatedBy      String
+
+  @@unique([tenantId, year, month], map: "uq_monthly_plans_tenant_year_month")
+}
+
+model Bill {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  amount    Decimal  @default(0)
+  dueDay    Int
+  frequency String
+  category  String
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+  updatedBy String
+}
+
+model Loan {
+  id           String   @id @default(cuid())
+  tenantId     String
+  name         String
+  principal    Decimal  @default(0)
+  emi          Decimal  @default(0)
+  rate         Decimal  @default(0)
+  startDate    DateTime
+  tenureMonths Int
+  status       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdBy    String
+  updatedBy    String
+}
+
+model Card {
+  id                String   @id @default(cuid())
+  tenantId          String
+  cardKey           String
+  issuer            String
+  last4             String?
+  network           String?
+  statementCycleDay Int?
+  creditLimit       Decimal?
+  status            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdBy         String
+  updatedBy         String
+  statements        Statement[]
+  transactions      Transaction[]
+
+  @@unique([tenantId, cardKey], map: "uq_cards_tenant_card_key")
+}
+
+model Statement {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  cardId             String
+  cardKey            String
+  statementMonth     String
+  dueDate            DateTime
+  minimumAmountDue   Decimal
+  totalAmountDue     Decimal
+  status             String
+  statementSyncMonth String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  createdBy          String
+  updatedBy          String
+  card               Card     @relation(fields: [cardId], references: [id])
+  transactions       Transaction[]
+
+  @@unique([tenantId, cardId, statementMonth], map: "uq_statements_tenant_card_month")
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  tenantId    String
+  cardId      String
+  statementId String?
+  txnDate     DateTime
+  amount      Decimal
+  merchant    String
+  channel     String
+  txnTimestamp DateTime?
+  bankKey     String?
+  emailId     String?
+  dedupeKey   String?
+  importedAt  DateTime?
+  referenceNo String?
+  externalId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
+  card        Card     @relation(fields: [cardId], references: [id])
+  statement   Statement? @relation(fields: [statementId], references: [id])
+
+  @@unique([tenantId, externalId], map: "uq_transactions_tenant_external_id")
+  @@unique([tenantId, dedupeKey], map: "uq_transactions_tenant_dedupe_key")
+}
+
+model ImportJobLock {
+  jobKey    String   @id
+  owner     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ImportJobState {
+  id                String   @id @default(cuid())
+  jobKey            String
+  bankKey           String
+  watermarkIso      String?
+  watermarkCutoffMs BigInt?
+  source            String
+  lastStartDate     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([jobKey, bankKey], map: "uq_import_job_state_job_bank")
+}
+
+model ImportJobRun {
+  id         String   @id @default(cuid())
+  jobKey     String
+  status     String
+  payload    Json
+  startedAt  DateTime
+  completedAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([jobKey, createdAt], map: "idx_import_job_run_job_created")
+}
+
+model PftSetting {
+  id                    String   @id @default(cuid())
+  tenantId              String   @unique(map: "uq_pft_settings_tenant")
+  currency              String   @default("INR")
+  defaultSalary         Decimal  @default(0)
+  defaultOtherIncome    Decimal  @default(0)
+  defaultRent           Decimal  @default(0)
+  defaultCook           Decimal  @default(0)
+  defaultLoanRepayment  Decimal  @default(0)
+  defaultSip            Decimal  @default(0)
+  defaultInvestment     Decimal  @default(0)
+  defaultLiquidSaved    Decimal  @default(0)
+  defaultBills          Decimal  @default(0)
+  defaultBasicExpenses  Decimal  @default(0)
+  defaultOtherExpenses  Decimal  @default(0)
+  prevLiquidBalance     Decimal  @default(0)
+  prevInvestmentBalance Decimal  @default(0)
+  dashboardYearRange    String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  createdBy             String
+  updatedBy             String
+}
