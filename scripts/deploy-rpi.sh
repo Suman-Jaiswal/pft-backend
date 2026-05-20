@@ -42,6 +42,7 @@ docker run -d \
   --name "${RPI_CONTAINER_NAME}" \
   --restart unless-stopped \
   --env-file "${SHARED_DIR}/.env" \
+  -e "PORT=${RPI_APP_PORT}" \
   -p "${RPI_APP_PORT}:4000" \
   pft-backend:current
 
