@@ -56,7 +56,7 @@ jobs:
             --exclude='*.log' \
             .
 
-      - name: Checkpoint: Verify artifacts
+      - name: "Checkpoint: Verify artifacts"
         run: |
           echo "Archive created: ${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
           ls -lh "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
@@ -83,7 +83,7 @@ jobs:
             echo "$BINDING_CONTAINER_IDS" | xargs -r docker rm -f || true
           fi
 
-      - name: Optional: Run DB migrations
+      - name: "Optional: Run DB migrations"
         if: ${{ secrets.PROD_DATABASE_URL }}
         env:
           DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
