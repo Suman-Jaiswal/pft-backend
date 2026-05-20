@@ -20,6 +20,8 @@ jobs:
     name: Build, test, and deploy on Raspberry Pi 5 self-hosted runner
     runs-on: [self-hosted, linux, arm64]
     if: github.event_name != 'pull_request'
+    env:
+      PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -84,9 +86,9 @@ jobs:
           fi
 
       - name: "Optional: Run DB migrations"
-        if: ${{ secrets.PROD_DATABASE_URL }}
+        if: ${{ env.PROD_DATABASE_URL != '' }}
         env:
-          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          DATABASE_URL: ${{ env.PROD_DATABASE_URL }}
         run: |
           echo "Running Prisma migrations against PROD database"
           npm run prisma:migrate:deploy
