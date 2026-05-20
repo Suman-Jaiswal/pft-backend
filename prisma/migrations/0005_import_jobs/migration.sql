@@ -1,6 +1,6 @@
-CREATE UNIQUE INDEX "uq_transactions_tenant_dedupe_key" ON "Transaction"("tenantId", "dedupeKey");
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_transactions_tenant_dedupe_key" ON "Transaction"("tenantId", "dedupeKey");
 
-CREATE TABLE "ImportJobLock" (
+CREATE TABLE IF NOT EXISTS "ImportJobLock" (
   "jobKey" TEXT NOT NULL,
   "owner" TEXT NOT NULL,
   "expiresAt" TIMESTAMP(3) NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE "ImportJobLock" (
   CONSTRAINT "ImportJobLock_pkey" PRIMARY KEY ("jobKey")
 );
 
-CREATE TABLE "ImportJobState" (
+CREATE TABLE IF NOT EXISTS "ImportJobState" (
   "id" TEXT NOT NULL,
   "jobKey" TEXT NOT NULL,
   "bankKey" TEXT NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE "ImportJobState" (
   CONSTRAINT "ImportJobState_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "ImportJobRun" (
+CREATE TABLE IF NOT EXISTS "ImportJobRun" (
   "id" TEXT NOT NULL,
   "jobKey" TEXT NOT NULL,
   "status" TEXT NOT NULL,
@@ -34,5 +34,5 @@ CREATE TABLE "ImportJobRun" (
   CONSTRAINT "ImportJobRun_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "uq_import_job_state_job_bank" ON "ImportJobState"("jobKey", "bankKey");
-CREATE INDEX "idx_import_job_run_job_created" ON "ImportJobRun"("jobKey", "createdAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_import_job_state_job_bank" ON "ImportJobState"("jobKey", "bankKey");
+CREATE INDEX IF NOT EXISTS "idx_import_job_run_job_created" ON "ImportJobRun"("jobKey", "createdAt");

@@ -1,4 +1,4 @@
-CREATE TABLE "MonthlyPlan" (
+CREATE TABLE IF NOT EXISTS "MonthlyPlan" (
   "id" TEXT PRIMARY KEY,
   "tenantId" TEXT NOT NULL,
   "month" INTEGER NOT NULL,
@@ -22,9 +22,9 @@ CREATE TABLE "MonthlyPlan" (
   "createdBy" TEXT NOT NULL,
   "updatedBy" TEXT NOT NULL
 );
-CREATE UNIQUE INDEX "uq_monthly_plans_tenant_year_month" ON "MonthlyPlan"("tenantId", "year", "month");
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_monthly_plans_tenant_year_month" ON "MonthlyPlan"("tenantId", "year", "month");
 
-CREATE TABLE "Bill" (
+CREATE TABLE IF NOT EXISTS "Bill" (
   "id" TEXT PRIMARY KEY,
   "tenantId" TEXT NOT NULL,
   "name" TEXT NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE "Bill" (
   "updatedBy" TEXT NOT NULL
 );
 
-CREATE TABLE "Loan" (
+CREATE TABLE IF NOT EXISTS "Loan" (
   "id" TEXT PRIMARY KEY,
   "tenantId" TEXT NOT NULL,
   "name" TEXT NOT NULL,
@@ -55,10 +55,10 @@ CREATE TABLE "Loan" (
   "updatedBy" TEXT NOT NULL
 );
 
-ALTER TABLE "Transaction" ADD COLUMN "txnTimestamp" TIMESTAMP;
-ALTER TABLE "Transaction" ADD COLUMN "bankKey" TEXT;
-ALTER TABLE "Transaction" ADD COLUMN "emailId" TEXT;
-ALTER TABLE "Transaction" ADD COLUMN "dedupeKey" TEXT;
-ALTER TABLE "Transaction" ADD COLUMN "importedAt" TIMESTAMP;
+ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "txnTimestamp" TIMESTAMP;
+ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "bankKey" TEXT;
+ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "emailId" TEXT;
+ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "dedupeKey" TEXT;
+ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "importedAt" TIMESTAMP;
 
-ALTER TABLE "PftSetting" ADD COLUMN "dashboardYearRange" TEXT;
+ALTER TABLE "PftSetting" ADD COLUMN IF NOT EXISTS "dashboardYearRange" TEXT;
