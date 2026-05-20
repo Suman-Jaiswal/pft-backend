@@ -68,6 +68,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: ci
     if: github.event_name != 'pull_request'
+    env:
+      MIGRATION_AUTO_RECOVER: ${{ secrets.MIGRATION_AUTO_RECOVER }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -85,7 +87,7 @@ jobs:
         run: npm run prisma:generate
 
       - name: Auto-recover failed migrations (optional)
-        if: ${{ secrets.MIGRATION_AUTO_RECOVER == 'true' }}
+        if: ${{ env.MIGRATION_AUTO_RECOVER == 'true' }}
         env:
           DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: |
