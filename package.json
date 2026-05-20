@@ -5,7 +5,7 @@
   "description": "Principal-level NestJS backend template for cards, statements, and transactions.",
   "license": "UNLICENSED",
   "scripts": {
-    "start": "node dist/src/main.js",
+    "start": "node -r tsconfig-paths/register dist/src/main.js",
     "start:dev": "ts-node -r tsconfig-paths/register src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -41,7 +41,8 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "swagger-ui-express": "^5.0.1",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "tsconfig-paths": "^4.2.0"
   },
   "devDependencies": {
     "@nestjs/testing": "^10.4.2",
@@ -60,7 +61,6 @@
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.5.4"
   }
 }
