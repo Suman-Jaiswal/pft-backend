@@ -61,7 +61,38 @@ To deploy manually:
 2. Select `rpi-cicd`
 3. Click `Run workflow`
 
-## 4) Migration behavior
+## 4) Raspberry Pi self-hosted runner
+
+If your Raspberry Pi has outbound internet access but is not reachable by inbound SSH from the public internet, you can run a GitHub self-hosted runner directly on the Pi.
+
+This repository includes a Pi-native workflow at `.github/workflows/rpi-selfhosted-cicd.yml` that:
+
+- listens to pushes on `main` and `stage/**`
+- checks out the repo on the Pi
+- installs dependencies, runs tests, and builds the app
+- creates the release archive locally
+- deploys the Docker container directly on the Pi using `scripts/deploy-rpi.sh`
+
+### Self-hosted runner requirements
+
+- Register a self-hosted runner for the repository or organization
+- Use labels such as `self-hosted`, `linux`, `arm64`, and optionally `rpi5`
+- Ensure the Pi has:
+  - Node.js 20
+  - Docker
+  - Docker Compose plugin
+  - outbound access to GitHub
+
+### Secrets required for the self-hosted workflow
+
+- `RPI_APP_DIR`
+- `RPI_CONTAINER_NAME`
+- `RPI_APP_PORT`
+- `RPI_ENV_FILE_CONTENT`
+
+The runner does not require `RPI_HOST`, `RPI_PORT`, or `RPI_SSH_PRIVATE_KEY` for this mode.
+
+## 5) Migration behavior
 
 Migration runs in GitHub Actions before deploy:
 

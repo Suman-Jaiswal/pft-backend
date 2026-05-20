@@ -1,0 +1,75 @@
+name: rpi-selfhosted-cicd
+
+on:
+  push:
+    branches:
+      - main
+      - "stage/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NODE_VERSION: "20"
+  ARCHIVE_NAME: pft-backend-release.tgz
+
+jobs:
+  self-hosted-deploy:
+    name: Build, test, and deploy on Raspberry Pi 5 self-hosted runner
+    runs-on: [self-hosted, linux, arm64]
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Create deployment archive
+        run: |
+          tar -czf "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}" \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='coverage' \
+            --exclude='*.log' \
+            .
+
+      - name: Deploy locally on Raspberry Pi
+        env:
+          APP_DIR: ${{ secrets.RPI_APP_DIR }}
+          RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
+          RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
+          RPI_ENV_FILE_CONTENT: ${{ secrets.RPI_ENV_FILE_CONTENT }}
+          RELEASE_ID: ${{ github.sha }}
+        run: |
+          mkdir -p /tmp
+          cp "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}" /tmp/
+          APP_DIR="${APP_DIR:-/opt/pft-backend}" \
+          RPI_CONTAINER_NAME="${RPI_CONTAINER_NAME:-pft-backend-app}" \
+          RPI_APP_PORT="${RPI_APP_PORT:-4000}" \
+          ARCHIVE_PATH="/tmp/${ARCHIVE_NAME}" \
+          RELEASE_ID="${RELEASE_ID::12}" \
+          RPI_ENV_FILE_CONTENT="${RPI_ENV_FILE_CONTENT:-}" \
+          scripts/deploy-rpi.sh

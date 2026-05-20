@@ -53,11 +53,16 @@ If you want to run app locally and only DB in Docker:
 
 ## CI/CD to Raspberry Pi 5
 
-GitHub Actions pipeline is available for SSH-based deployment to your RPi5:
+GitHub Actions pipeline is available for Raspberry Pi deployment in two modes:
 
-- Workflow: `.github/workflows/rpi-cicd.yml`
-- Docs: `docs/deployment-rpi5-github-actions.md`
-- Migration runs in Actions against `PROD_DATABASE_URL`; Pi deploy is Docker container restart only.
+- SSH-based deployment from GitHub-hosted runner: `.github/workflows/rpi-cicd.yml`
+- Pi-native self-hosted runner deployment: `.github/workflows/rpi-selfhosted-cicd.yml`
+
+Docs: `docs/deployment-rpi5-github-actions.md`
+
+The self-hosted runner mode is appropriate when the Pi can reach GitHub outbound but is not reachable via inbound SSH.
+
+Migration runs on the runner against `PROD_DATABASE_URL`; Pi deploy is Docker container restart only.
 
 ## Scripts
 
@@ -79,11 +84,13 @@ GitHub Actions pipeline is available for SSH-based deployment to your RPi5:
 - Suggested schedule: every 10 min (`*/10 * * * *`, `Asia/Kolkata`)
 
 Reference docs:
+
 - `docs/domain/cc-txn-import-runtime.md`
 - `docs/domain/cc-txn-import-parser-parity.md`
 - `docs/domain/cc-txn-import-rollout.md`
 
 Generate Gmail refresh token (one-time):
+
 - `npm run gmail:token`
 - Requires `.env` with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
 - Script prints `IMPORT_GMAIL_REFRESH_TOKEN=...` to copy into `.env`
