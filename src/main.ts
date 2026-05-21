@@ -7,6 +7,15 @@ import helmet from "helmet";
 import { setDefaultResultOrder } from "node:dns";
 import "reflect-metadata";
 
+function normalizeOrigin(value: string): string {
+  const cleaned = value.trim().replace(/^"+|"+$/g, "").replace(/\/+$/, "");
+  try {
+    return new URL(cleaned).origin;
+  } catch {
+    return cleaned;
+  }
+}
+
 async function bootstrap(): Promise<void> {
   // Prefer IPv4 first for outbound OAuth calls; avoids intermittent fetch failures
   // on environments where IPv6 resolution succeeds but routing fails.
@@ -14,7 +23,10 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   app.use(helmet());
   const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean)
+    ? process.env.CORS_ORIGIN
+        .split(",")
+        .map((origin) => normalizeOrigin(origin))
+        .filter(Boolean)
     : ["http://localhost:5173"];
   console.log("[CORS] Allowed origins:", allowedOrigins.join(", "));
 
@@ -22,9 +34,10 @@ async function bootstrap(): Promise<void> {
     origin: (origin, callback) => {
       // Allow requests without Origin header (curl, server-to-server, health checks).
       if (!origin) return callback(null, true);
-      const isAllowed = allowedOrigins.includes(origin);
+      const normalizedOrigin = normalizeOrigin(origin);
+      const isAllowed = allowedOrigins.includes(normalizedOrigin);
       if (!isAllowed) {
-        console.warn(`[CORS] Blocked origin: ${origin}`);
+        console.warn(`[CORS] Blocked origin: ${origin} (normalized: ${normalizedOrigin})`);
       }
       return callback(isAllowed ? null : new Error("Not allowed by CORS"), isAllowed);
     },
