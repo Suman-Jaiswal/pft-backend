@@ -15,6 +15,7 @@ describe('IciciParser', () => {
     expect(parsed).not.toBeNull()
     expect(parsed?.cardLast4).toBe('5000')
     expect(parsed?.amount).toBe(120)
+    expect(parsed?.bankKey).toBe('ICICI_5000')
     expect(parsed?.referenceNo).toBe('U123')
   })
 
@@ -31,6 +32,35 @@ describe('IciciParser', () => {
     expect(parsed?.cardLast4).toBe('9003')
     expect(parsed?.merchant).toBe('STARBUCKS')
     expect(parsed?.referenceNo).toBe('778899')
+    expect(parsed?.bankKey).toBe('ICICI_9003')
+  })
+
+  it('extracts transaction amount and ignores available credit limit amount', () => {
+    const parsed = parser.parse({
+      id: 'msg3d',
+      receivedAtMs: Date.now(),
+      from: 'credit_cards@icici.bank.in',
+      subject: 'Transaction alert for your ICICI Bank Credit Card',
+      body: `Dear Customer, Your ICICI Bank Credit Card XX5000 has been used for a transaction of INR 519.75 on May 20, 2026 at 11:37:23. Info: SPACESHIP.COM* WDCVMW.
+The Available Credit Limit on your card is INR 2,98,986.80 and Total Credit Limit is INR 3,00,000.00.`,
+    })
+
+    expect(parsed).not.toBeNull()
+    expect(parsed?.amount).toBe(519.75)
+    expect(parsed?.cardLast4).toBe('5000')
+  })
+
+  it('returns null when transaction amount is missing even if limit lines contain INR values', () => {
+    const parsed = parser.parse({
+      id: 'msg3e',
+      receivedAtMs: Date.now(),
+      from: 'credit_cards@icici.bank.in',
+      subject: 'Transaction alert for your ICICI Bank Credit Card',
+      body: `Dear Customer, Your ICICI Bank Credit Card XX9003 has been used for a transaction of USD .00 on May 20, 2026 at 11:31:59.
+The Available Credit Limit on your card is INR 2,99,508.55 and Total Credit Limit is INR 3,00,000.00.`,
+    })
+
+    expect(parsed).toBeNull()
   })
 
   it('skips declined transactions', () => {
