@@ -32,6 +32,21 @@ describe('SbiParser', () => {
     expect(parsed?.merchant).toBe('ZOMATO')
   })
 
+  it('parses ending with template from transaction alert email', () => {
+    const parsed = parser.parse({
+      id: 'msg1d',
+      receivedAtMs: Date.now(),
+      from: 'onlinesbicard@sbicard.com',
+      subject: 'Transaction Alert from SBI Card',
+      body: 'This is to inform you that, Rs.240.00 spent on your SBI Credit Card ending with 5965 at ZEPTOMARKETPLACEPRIVA on 21-05-26 via UPI (Ref No. 436011751416).',
+    })
+
+    expect(parsed).not.toBeNull()
+    expect(parsed?.cardLast4).toBe('5965')
+    expect(parsed?.merchant).toBe('ZEPTOMARKETPLACEPRIVA')
+    expect(parsed?.referenceNo).toBe('436011751416')
+  })
+
   it('skips failed alerts', () => {
     const parsed = parser.parse({
       id: 'msg1c',
