@@ -16,6 +16,7 @@ import { RolesGuard } from '@/shared/auth/roles.guard'
 import { Roles } from '@/shared/auth/roles.decorator'
 import { Role } from '@/shared/auth/role.enum'
 import { CreateStatementDto } from '@/modules/statements/presentation/dto/create-statement.dto'
+import { ListStatementsQueryDto } from '@/modules/statements/presentation/dto/list-statements.query.dto'
 import { UpdateStatementDto } from '@/modules/statements/presentation/dto/update-statement.dto'
 import { ok } from '@/shared/presentation/api-response'
 
@@ -36,20 +37,16 @@ export class StatementsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.USER)
-  async list(
-    @Req() req: ReqUser,
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '20',
-    @Query('cardId') cardId?: string,
-    @Query('statementMonth') statementMonth?: string,
-  ) {
+  async list(@Req() req: ReqUser, @Query() query: ListStatementsQueryDto) {
+    const page = query.page ?? 1
+    const pageSize = query.pageSize ?? 20
     return ok(
       await this.statementsService.list(
         req.user.tenantId,
         Number(page),
         Number(pageSize),
-        cardId,
-        statementMonth,
+        query.cardId,
+        query.statementMonth,
       ),
     )
   }

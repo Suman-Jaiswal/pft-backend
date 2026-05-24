@@ -10,13 +10,14 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common'
-import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
 import { RolesGuard } from '@/shared/auth/roles.guard'
 import { Roles } from '@/shared/auth/roles.decorator'
 import { Role } from '@/shared/auth/role.enum'
 import { TransactionsService } from '@/modules/transactions/transactions.service'
 import { CreateTransactionDto } from '@/modules/transactions/presentation/dto/create-transaction.dto'
+import { ListTransactionsQueryDto } from '@/modules/transactions/presentation/dto/list-transactions.query.dto'
 import { UpdateTransactionDto } from '@/modules/transactions/presentation/dto/update-transaction.dto'
 import { ok } from '@/shared/presentation/api-response'
 
@@ -37,27 +38,17 @@ export class TransactionsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.USER)
-  @ApiQuery({ name: 'page', required: false, type: String })
-  @ApiQuery({ name: 'pageSize', required: false, type: String })
-  @ApiQuery({ name: 'cardId', required: false, type: String })
-  @ApiQuery({ name: 'fromDate', required: false, type: String })
-  @ApiQuery({ name: 'toDate', required: false, type: String })
-  async list(
-    @Req() req: ReqUser,
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '20',
-    @Query('cardId') cardId?: string,
-    @Query('fromDate') fromDate?: string,
-    @Query('toDate') toDate?: string,
-  ) {
+  async list(@Req() req: ReqUser, @Query() query: ListTransactionsQueryDto) {
+    const page = query.page ?? 1
+    const pageSize = query.pageSize ?? 20
     return ok(
       await this.transactionsService.list(
         req.user.tenantId,
         Number(page),
         Number(pageSize),
-        cardId,
-        fromDate,
-        toDate,
+        query.cardId,
+        query.fromDate,
+        query.toDate,
       ),
     )
   }
