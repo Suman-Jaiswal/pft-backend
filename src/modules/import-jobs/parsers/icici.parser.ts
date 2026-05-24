@@ -5,11 +5,7 @@ import { ParsedBankTransaction, PolledMessage } from '@/modules/import-jobs/type
 export class IciciParser {
   parse(message: PolledMessage): ParsedBankTransaction | null {
     const source = `${message.subject}\n${message.body}`
-    const amountMatch =
-      source.match(/USD\s*([0-9,]+(?:\.[0-9]{1,2})?)/i) ||
-      source.match(/INR\s*([0-9,]+(?:\.[0-9]{1,2})?)/i) ||
-      source.match(/Rs\.?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i)
-    const amount = amountMatch ? Number(amountMatch[1].replace(/,/g, '')) : NaN
+    const amount = this.extractTransactionAmount(source)
     if (!Number.isFinite(amount)) return null
 
     if (this.shouldSkipNonPostedTxn(source, amount)) return null
@@ -48,10 +44,27 @@ export class IciciParser {
       merchant: this.normalizeMerchant(merchant),
       channel: this.detectChannel(source),
       referenceNo: referenceNo || undefined,
-      bankKey: 'ICICI_SHARED',
+      bankKey: `ICICI_${last4}`,
       emailId: message.id,
       importedAt: new Date().toISOString(),
     }
+  }
+
+  private extractTransactionAmount(source: string): number {
+    const amountMatch =
+      source.match(
+        /(?:used\s+for\s+a\s+transaction\s+of|transaction\s+of)\s*(?:INR|Rs\.?|USD)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
+      ) ||
+      source.match(
+        /(?:has\s+been\s+used\s+for\s+a\s+transaction\s+of)\s*(?:INR|Rs\.?|USD)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
+      ) ||
+      source.match(/(?:used\s+for|has\s+been\s+used\s+for)\s*(?:INR|Rs\.?|USD)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i) ||
+      source.match(/(?:debited|charged)\s*(?:INR|Rs\.?)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i) ||
+      source.match(/(?:INR|Rs\.?)\s*([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:debited|spent|charged)/i) ||
+      source.match(/(?:INR|Rs\.?)\s*([0-9,]+(?:\.[0-9]{1,2})?)\s+using\s+your\s+ICICI/i)
+
+    if (!amountMatch) return Number.NaN
+    return Number(amountMatch[1].replace(/,/g, ''))
   }
 
   private shouldSkipNonPostedTxn(text: string, amount: number): boolean {
@@ -66,6 +79,7 @@ export class IciciParser {
       source.includes('VOID') ||
       source.includes('CANCELLED') ||
       source.includes('CANCELED') ||
+      source.includes('COULD NOT BE COMPLETED') ||
       source.includes('VERIFICATION') ||
       source.includes('VERIFY')
     )
