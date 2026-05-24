@@ -10,7 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common'
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
 import { RolesGuard } from '@/shared/auth/roles.guard'
 import { Roles } from '@/shared/auth/roles.decorator'
@@ -37,6 +37,11 @@ export class TransactionsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.USER)
+  @ApiQuery({ name: 'page', required: false, type: String })
+  @ApiQuery({ name: 'pageSize', required: false, type: String })
+  @ApiQuery({ name: 'cardId', required: false, type: String })
+  @ApiQuery({ name: 'fromDate', required: false, type: String })
+  @ApiQuery({ name: 'toDate', required: false, type: String })
   async list(
     @Req() req: ReqUser,
     @Query('page') page = '1',
