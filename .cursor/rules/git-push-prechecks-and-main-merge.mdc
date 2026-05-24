@@ -1,0 +1,28 @@
+---
+description: Enforce local prechecks and main-merge before branch pushes
+alwaysApply: true
+---
+
+# Push Safety Workflow
+
+Before any push from this workspace, follow these steps.
+
+## For non-main branches
+
+1. Fetch latest remote refs.
+2. Merge `origin/main` into the current branch.
+3. If merge conflicts appear, stop and ask the user before continuing.
+
+## Local prechecks before every push
+
+Run these checks locally and only push if they pass:
+
+1. `npm run prisma:generate`
+2. `npm run lint`
+3. `npm run test`
+4. `npm run build` (or `npx tsc -p tsconfig.build.json --noEmit` when build output setup is known to be problematic)
+
+## Failure behavior
+
+- If any precheck fails, do not push.
+- Report the failing command and key error details.
