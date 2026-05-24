@@ -3,6 +3,7 @@ import { ValidationPipe, VersioningType } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import "dotenv/config";
+import type { NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import { setDefaultResultOrder } from "node:dns";
 import "reflect-metadata";
@@ -22,6 +23,14 @@ async function bootstrap(): Promise<void> {
   setDefaultResultOrder("ipv4first");
   const app = await NestFactory.create(AppModule);
   app.use(helmet());
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const startedAt = Date.now();
+    res.on("finish", () => {
+      const durationMs = Date.now() - startedAt;
+      console.log(`[HTTP] ${req.method} ${req.originalUrl} ${res.statusCode} ${durationMs}ms`);
+    });
+    next();
+  });
   const allowedOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN
         .split(",")

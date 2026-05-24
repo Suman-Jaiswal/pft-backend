@@ -6,6 +6,7 @@ import { Roles } from '@/shared/auth/roles.decorator'
 import { Role } from '@/shared/auth/role.enum'
 import { ok } from '@/shared/presentation/api-response'
 import { MonthlyPlansService } from '@/modules/monthly-plans/monthly-plans.service'
+import { CurrentMonthlyPlanQueryDto } from '@/modules/monthly-plans/dto/current-monthly-plan.query.dto'
 import { UpsertMonthlyPlanDto } from '@/modules/monthly-plans/dto/upsert-monthly-plan.dto'
 
 type ReqUser = { user: { sub: string; tenantId: string } }
@@ -25,8 +26,8 @@ export class MonthlyPlansController {
 
   @Get('current')
   @Roles(Role.ADMIN, Role.USER)
-  async current(@Req() req: ReqUser, @Query('month') month: string, @Query('year') year: string) {
-    return ok(await this.service.getCurrent(req.user.tenantId, Number(month), Number(year)))
+  async current(@Req() req: ReqUser, @Query() query: CurrentMonthlyPlanQueryDto) {
+    return ok(await this.service.getCurrent(req.user.tenantId, Number(query.month), Number(query.year)))
   }
 
   @Post()

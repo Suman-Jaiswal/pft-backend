@@ -16,6 +16,7 @@ import { RolesGuard } from '@/shared/auth/roles.guard'
 import { Roles } from '@/shared/auth/roles.decorator'
 import { Role } from '@/shared/auth/role.enum'
 import { CreateCardDto } from '@/modules/cards/presentation/dto/create-card.dto'
+import { ListCardsQueryDto } from '@/modules/cards/presentation/dto/list-cards.query.dto'
 import { UpdateCardDto } from '@/modules/cards/presentation/dto/update-card.dto'
 import { ok } from '@/shared/presentation/api-response'
 import { CardStatus } from '@/modules/cards/domain/entities/card.entity'
@@ -37,7 +38,9 @@ export class CardsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.USER)
-  async list(@Req() req: ReqUser, @Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+  async list(@Req() req: ReqUser, @Query() query: ListCardsQueryDto) {
+    const page = query.page ?? 1
+    const pageSize = query.pageSize ?? 20
     return ok(await this.cardsService.list(req.user.tenantId, Number(page), Number(pageSize)))
   }
 

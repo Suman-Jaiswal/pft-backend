@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { AuthService } from '@/modules/auth/auth.service'
+import { GoogleCallbackQueryDto } from '@/modules/auth/dto/google-callback.query.dto'
+import { GoogleStartQueryDto } from '@/modules/auth/dto/google-start.query.dto'
 import { LoginDto } from '@/modules/auth/dto/login.dto'
 import { ok } from '@/shared/presentation/api-response'
 import { appConfig } from '@/config/app.config'
@@ -22,13 +24,13 @@ export class AuthController {
   }
 
   @Get('google/start')
-  async googleStart(@Query('state') state?: string) {
-    return ok({ url: this.authService.getGoogleAuthUrl(state) })
+  async googleStart(@Query() query: GoogleStartQueryDto) {
+    return ok({ url: this.authService.getGoogleAuthUrl(query.state) })
   }
 
   @Get('google/callback')
-  async googleCallback(@Query('code') code: string, @Res() res: Response) {
-    const out = await this.authService.googleCallback(code)
+  async googleCallback(@Query() query: GoogleCallbackQueryDto, @Res() res: Response) {
+    const out = await this.authService.googleCallback(query.code)
     const redirect = `${appConfig.authSuccessRedirect}?token=${encodeURIComponent(out.accessToken)}`
     return res.redirect(redirect)
   }
