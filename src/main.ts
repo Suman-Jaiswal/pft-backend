@@ -71,10 +71,11 @@ async function bootstrap(): Promise<void> {
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
+  const docsVersion = process.env.APP_VERSION || process.env.RELEASE_ID || "1.0.0";
   const config = new DocumentBuilder()
     .setTitle("PFT Backend Template")
     .setDescription("Cards, statements, transactions")
-    .setVersion("1.0.0")
+    .setVersion(docsVersion)
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
