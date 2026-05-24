@@ -179,6 +179,33 @@ model ImportJobRun {
   @@index([jobKey, createdAt], map: "idx_import_job_run_job_created")
 }
 
+model ImportMessageFailure {
+  id           String   @id @default(cuid())
+  jobKey        String
+  bankKey       String
+  messageId     String
+  receivedAtMs  BigInt?
+  fromAddress   String?
+  subject       String?
+  bodyPreview   String?
+  failureType   String
+  failureReason String
+  errorText     String?
+  status        String
+  attemptCount  Int      @default(0)
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  lastRetriedAt DateTime?
+  resolvedAt    DateTime?
+  resolvedTxnId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([jobKey, bankKey, messageId], map: "uq_import_message_failure_job_bank_msg")
+  @@index([status, updatedAt], map: "idx_import_message_failure_status_updated")
+  @@index([bankKey, status, updatedAt], map: "idx_import_message_failure_bank_status_updated")
+}
+
 model PftSetting {
   id                    String   @id @default(cuid())
   tenantId              String   @unique(map: "uq_pft_settings_tenant")

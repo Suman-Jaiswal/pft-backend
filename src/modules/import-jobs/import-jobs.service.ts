@@ -1,7 +1,14 @@
 import { Injectable } from '@nestjs/common'
 import { CcTxnImportService } from '@/modules/import-jobs/services/cc-txn-import.service'
 import { ImportLockService } from '@/modules/import-jobs/services/import-lock.service'
-import { ImportRunSummary } from '@/modules/import-jobs/types/import-contracts'
+import {
+  ImportFailureListResult,
+  ImportFailureRetryResult,
+  ImportFailureStatus,
+  ImportFailureType,
+  ImportRunSummary,
+  WatermarkRebaseResult,
+} from '@/modules/import-jobs/types/import-contracts'
 
 const JOB_KEY = 'cc_txn_import'
 const LOCK_TTL_MS = 20 * 60 * 1000
@@ -50,5 +57,32 @@ export class ImportJobsService {
     } finally {
       await this.lockService.release(JOB_KEY, options.owner)
     }
+  }
+
+  async listCcTxnFailures(options: {
+    status?: ImportFailureStatus
+    failureType?: ImportFailureType
+    bankKeys?: string[]
+    page?: number
+    pageSize?: number
+  }): Promise<ImportFailureListResult> {
+    return this.ccTxnImportService.listFailures(options)
+  }
+
+  async retryCcTxnFailures(options: {
+    ids?: string[]
+    bankKeys?: string[]
+    limit?: number
+    dryRun?: boolean
+  }): Promise<ImportFailureRetryResult> {
+    return this.ccTxnImportService.retryFailures(options)
+  }
+
+  async rebaseCcTxnImportWatermark(options: {
+    days?: number
+    bankKeys?: string[]
+    dryRun?: boolean
+  }): Promise<WatermarkRebaseResult> {
+    return this.ccTxnImportService.rebaseWatermark(options)
   }
 }

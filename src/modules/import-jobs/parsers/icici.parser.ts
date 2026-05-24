@@ -4,13 +4,38 @@ import { ParsedBankTransaction, PolledMessage } from '@/modules/import-jobs/type
 @Injectable()
 export class IciciParser {
   parse(message: PolledMessage): ParsedBankTransaction | null {
-    const amountMatch = message.body.match(/(?:INR|Rs\.?)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i)
+    const source = `${message.subject}\n${message.body}`
+    const amountMatch =
+      source.match(/USD\s*([0-9,]+(?:\.[0-9]{1,2})?)/i) ||
+      source.match(/INR\s*([0-9,]+(?:\.[0-9]{1,2})?)/i) ||
+      source.match(/Rs\.?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i)
     const amount = amountMatch ? Number(amountMatch[1].replace(/,/g, '')) : NaN
     if (!Number.isFinite(amount)) return null
 
-    const merchant = (message.body.match(/(?:at|towards)\s+([A-Za-z0-9 .&-]{3,80})/i)?.[1] ?? 'UNKNOWN').trim()
-    const referenceNo = (message.body.match(/(?:Ref|Reference|Txn)\s*[:#-]?\s*([A-Za-z0-9-]+)/i)?.[1] ?? '').trim()
-    const last4 = (message.body.match(/(?:XX|xx)(\d{4})/)?.[1] ?? '').trim()
+    if (this.shouldSkipNonPostedTxn(source, amount)) return null
+
+    const merchant =
+      (
+        source.match(/at\s+([A-Z0-9*._\-/ ]+?)(?:\son|\.)/i)?.[1] ??
+        source.match(/on\s+([A-Z0-9*._\-/ ]+?)(?:\sat|\.)/i)?.[1] ??
+        source.match(/merchant[:\s-]*([A-Z0-9*._\-/ ]+?)(?:\.|\n|$)/i)?.[1] ??
+        source.match(/towards\s+([A-Z0-9*._\-/ ]+?)(?:\son|\.)/i)?.[1] ??
+        'ICICI TXN'
+      ).trim()
+    const referenceNo =
+      (
+        source.match(/reference\s*(?:number|no)?[:\s-]*([A-Z0-9]+)/i)?.[1] ??
+        source.match(/rrn[:\s-]*([A-Z0-9]+)/i)?.[1] ??
+        source.match(/(?:Ref|Reference)\s*[:#-]?\s*([A-Za-z0-9-]+)/i)?.[1] ??
+        ''
+      ).trim()
+    const last4 =
+      (
+        source.match(/Credit Card\s*(?:ending|xx|XX|\*+)?\s*([0-9]{4})/i)?.[1] ??
+        source.match(/(?:XX|xx)(\d{4})/)?.[1] ??
+        source.match(/card\s*([0-9]{4})/i)?.[1] ??
+        ''
+      ).trim()
     if (!last4) return null
 
     const ts = new Date(message.receivedAtMs).toISOString()
@@ -20,12 +45,44 @@ export class IciciParser {
       account: 'ICICI',
       cardLast4: last4,
       amount,
-      merchant,
-      channel: 'UNKNOWN',
+      merchant: this.normalizeMerchant(merchant),
+      channel: this.detectChannel(source),
       referenceNo: referenceNo || undefined,
       bankKey: 'ICICI_SHARED',
       emailId: message.id,
       importedAt: new Date().toISOString(),
     }
+  }
+
+  private shouldSkipNonPostedTxn(text: string, amount: number): boolean {
+    const source = text.toUpperCase()
+    if (amount <= 0) return true
+    return (
+      source.includes('DECLINED') ||
+      source.includes('FAILED') ||
+      source.includes('FAILURE') ||
+      source.includes('REVERSED') ||
+      source.includes('REVERSAL') ||
+      source.includes('VOID') ||
+      source.includes('CANCELLED') ||
+      source.includes('CANCELED') ||
+      source.includes('VERIFICATION') ||
+      source.includes('VERIFY')
+    )
+  }
+
+  private normalizeMerchant(value: string): string {
+    return value
+      .replace(/\s+/g, ' ')
+      .replace(/[.]+$/, '')
+      .trim()
+  }
+
+  private detectChannel(text: string): string {
+    const source = text.toUpperCase()
+    if (source.includes('UPI')) return 'UPI'
+    if (source.includes('ONLINE') || source.includes('ECOM')) return 'ONLINE'
+    if (source.includes('POS') || source.includes('CONTACTLESS')) return 'POS'
+    return 'CARD'
   }
 }

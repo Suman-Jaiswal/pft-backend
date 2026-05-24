@@ -1,8 +1,21 @@
-import { Body, Controller, Headers, HttpCode, HttpStatus, Post, UnauthorizedException } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Query,
+  UnauthorizedException,
+} from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import { ok } from '@/shared/presentation/api-response'
 import { ImportJobsService } from '@/modules/import-jobs/import-jobs.service'
 import { RunCcTxnImportDto } from '@/modules/import-jobs/dto/run-cc-txn-import.dto'
+import { ListCcTxnFailuresDto } from '@/modules/import-jobs/dto/list-cc-txn-failures.dto'
+import { RetryCcTxnFailuresDto } from '@/modules/import-jobs/dto/retry-cc-txn-failures.dto'
+import { RebaseWatermarkDto } from '@/modules/import-jobs/dto/rebase-watermark.dto'
 
 @ApiTags('import-jobs')
 @Controller({ path: 'import-jobs', version: '1' })
@@ -15,10 +28,7 @@ export class ImportJobsController {
     @Body() dto: RunCcTxnImportDto,
     @Headers('x-job-token') token?: string,
   ) {
-    const expectedToken = process.env.IMPORT_JOB_TOKEN ?? ''
-    if (expectedToken && token !== expectedToken) {
-      throw new UnauthorizedException('Invalid X-Job-Token')
-    }
+    this.ensureJobToken(token)
 
     const owner = `api:${Date.now()}`
     const result = await this.importJobsService.runCcTxnImport({
@@ -27,5 +37,61 @@ export class ImportJobsController {
       owner,
     })
     return ok(result)
+  }
+
+  @Get('cc-txn-failures')
+  @HttpCode(HttpStatus.OK)
+  async listCcTxnFailures(
+    @Query() dto: ListCcTxnFailuresDto,
+    @Headers('x-job-token') token?: string,
+  ) {
+    this.ensureJobToken(token)
+
+    const result = await this.importJobsService.listCcTxnFailures({
+      status: dto.status,
+      failureType: dto.failureType,
+      bankKeys: dto.bankKeys,
+      page: dto.page,
+      pageSize: dto.pageSize,
+    })
+    return ok(result)
+  }
+
+  @Post('cc-txn-failures/retry')
+  @HttpCode(HttpStatus.OK)
+  async retryCcTxnFailures(
+    @Body() dto: RetryCcTxnFailuresDto,
+    @Headers('x-job-token') token?: string,
+  ) {
+    this.ensureJobToken(token)
+    const result = await this.importJobsService.retryCcTxnFailures({
+      ids: dto.ids,
+      bankKeys: dto.bankKeys,
+      limit: dto.limit,
+      dryRun: dto.dryRun,
+    })
+    return ok(result)
+  }
+
+  @Post('cc-txn-import/rebase-watermark')
+  @HttpCode(HttpStatus.OK)
+  async rebaseCcTxnImportWatermark(
+    @Body() dto: RebaseWatermarkDto,
+    @Headers('x-job-token') token?: string,
+  ) {
+    this.ensureJobToken(token)
+    const result = await this.importJobsService.rebaseCcTxnImportWatermark({
+      days: dto.days,
+      bankKeys: dto.bankKeys,
+      dryRun: dto.dryRun,
+    })
+    return ok(result)
+  }
+
+  private ensureJobToken(token?: string): void {
+    const expectedToken = process.env.IMPORT_JOB_TOKEN ?? ''
+    if (expectedToken && token !== expectedToken) {
+      throw new UnauthorizedException('Invalid X-Job-Token')
+    }
   }
 }

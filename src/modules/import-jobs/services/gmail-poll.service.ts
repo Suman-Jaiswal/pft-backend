@@ -20,9 +20,7 @@ export class GmailPollService {
       return []
     }
 
-    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, appConfig.googleRedirectUri || undefined)
-    oauth2Client.setCredentials({ refresh_token: refreshToken })
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client })
+    const gmail = this.getGmailClient(clientId, clientSecret, refreshToken)
     const query = `label:"${labelName}" after:${afterDate.replace(/-/g, '/')}`
 
     const messageIds = await this.listMessageIdsWithRetry(gmail, userId, query, appConfig.importGmailMaxResults)
@@ -34,21 +32,28 @@ export class GmailPollService {
 
     return messages
       .filter((msg): msg is NonNullable<typeof msg> => Boolean(msg))
-      .map((msg) => {
-        const body = this.extractBody(msg.payload)
-        const headers = msg.payload?.headers ?? []
-        const from = headers.find((h) => h.name?.toLowerCase() === 'from')?.value ?? ''
-        const subject = headers.find((h) => h.name?.toLowerCase() === 'subject')?.value ?? ''
-        const receivedAtMs = Number(msg.internalDate ?? '0')
-        return {
-          id: msg.id ?? '',
-          receivedAtMs,
-          from,
-          subject,
-          body,
-        }
-      })
-      .filter((m) => Boolean(m.id))
+      .map((msg) => this.mapToPolledMessage(msg))
+      .filter((m): m is PolledMessage => Boolean(m))
+  }
+
+  async fetchByMessageId(messageId: string): Promise<PolledMessage | null> {
+    const clientId = appConfig.googleClientId
+    const clientSecret = appConfig.googleClientSecret
+    const refreshToken = appConfig.importGmailRefreshToken
+    const userId = appConfig.importGmailUser || 'me'
+
+    if (!clientId || !clientSecret || !refreshToken) {
+      this.logger.warn(
+        'Gmail import credentials not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, IMPORT_GMAIL_REFRESH_TOKEN.',
+      )
+      return null
+    }
+
+    const gmail = this.getGmailClient(clientId, clientSecret, refreshToken)
+    const message = await this.fetchMessageWithRetry(gmail, userId, messageId)
+    if (!message) return null
+
+    return this.mapToPolledMessage(message)
   }
 
   private async listMessageIdsWithRetry(
@@ -94,6 +99,24 @@ export class GmailPollService {
       }),
     )
     return response.data
+  }
+
+  private getGmailClient(clientId: string, clientSecret: string, refreshToken: string) {
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, appConfig.googleRedirectUri || undefined)
+    oauth2Client.setCredentials({ refresh_token: refreshToken })
+    return google.gmail({ version: 'v1', auth: oauth2Client })
+  }
+
+  private mapToPolledMessage(msg: gmail_v1.Schema$Message): PolledMessage | null {
+    const body = this.extractBody(msg.payload)
+    const headers = msg.payload?.headers ?? []
+    const from = headers.find((h) => h.name?.toLowerCase() === 'from')?.value ?? ''
+    const subject = headers.find((h) => h.name?.toLowerCase() === 'subject')?.value ?? ''
+    const receivedAtMs = Number(msg.internalDate ?? '0')
+    const id = msg.id ?? ''
+    if (!id) return null
+
+    return { id, receivedAtMs, from, subject, body }
   }
 
   private extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {

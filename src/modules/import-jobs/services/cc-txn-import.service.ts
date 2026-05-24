@@ -4,23 +4,30 @@ import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { appConfig } from '@/config/app.config'
 import { GmailPollService } from '@/modules/import-jobs/services/gmail-poll.service'
 import { ImportAlertService } from '@/modules/import-jobs/services/import-alert.service'
+import { ImportFailureService } from '@/modules/import-jobs/services/import-failure.service'
 import { HdfcParser } from '@/modules/import-jobs/parsers/hdfc.parser'
 import { IciciParser } from '@/modules/import-jobs/parsers/icici.parser'
 import { SbiParser } from '@/modules/import-jobs/parsers/sbi.parser'
 import {
   BankConfig,
+  ImportFailureRetryResult,
   BankImportResult,
   BankImportStats,
-  ImportRunSummary,
-  ImportWindow,
+  ImportFailureType,
   ImportWindowSource,
+  ImportRunSummary,
+  ImportFailureListResult,
+  ImportFailureStatus,
   ParsedBankTransaction,
-  PersistableTransaction,
   PolledMessage,
+  WatermarkRebaseResult,
+  ImportWindow,
+  PersistableTransaction,
 } from '@/modules/import-jobs/types/import-contracts'
 
 const JOB_KEY = 'cc_txn_import'
 const IMPORT_ACTOR = 'import-job'
+const DEFAULT_REBASE_DAYS = 10
 
 const DEFAULT_BANKS: BankConfig[] = [
   {
@@ -59,6 +66,7 @@ export class CcTxnImportService {
     private readonly prisma: PrismaService,
     private readonly gmailPoll: GmailPollService,
     private readonly importAlert: ImportAlertService,
+    private readonly importFailureService: ImportFailureService,
     private readonly sbiParser: SbiParser,
     private readonly hdfcParser: HdfcParser,
     private readonly iciciParser: IciciParser,
@@ -156,63 +164,182 @@ export class CcTxnImportService {
       skipped: 0,
       parseMiss: 0,
       parseErrors: 0,
+      writeFailures: 0,
+      cardMissing: 0,
     }
 
-    const persistableRows: PersistableTransaction[] = []
+    let inserted = 0
     let maxReceivedAtMs = 0
 
     for (const message of filteredMessages) {
       maxReceivedAtMs = Math.max(maxReceivedAtMs, message.receivedAtMs)
-
-      if (bank.senderAllowlist?.length) {
-        const from = message.from.toLowerCase()
-        const allowed = bank.senderAllowlist.some((sender) => from.includes(sender.toLowerCase()))
-        if (!allowed) {
-          stats.skipped++
-          continue
-        }
-      }
-
-      try {
-        const parsed = this.parseMessage(bank, message)
-        if (!parsed) {
-          stats.parseMiss++
-          this.logParserMiss(bank.bankKey, message, 'parser_returned_null')
-          continue
-        }
-        if (!this.validateCardRules(bank, parsed)) {
-          stats.skipped++
-          this.logParserMiss(bank.bankKey, message, 'card_rule_mismatch')
-          continue
-        }
-
-        const dedupeKey = this.makeDedupKey(parsed)
-        if (existingKeys.has(dedupeKey)) {
+      const outcome = await this.processMessage(bank, message, existingKeys, dryRun)
+      switch (outcome.kind) {
+        case 'inserted':
+          inserted++
+          break
+        case 'duplicate':
           stats.duplicates++
-          continue
-        }
-
-        existingKeys.add(dedupeKey)
-        persistableRows.push(this.toPersistable(parsed, dedupeKey))
-      } catch {
-        stats.parseErrors++
+          break
+        case 'skipped':
+          stats.skipped++
+          break
+        case 'parse_miss':
+          stats.parseMiss++
+          break
+        case 'parse_error':
+          stats.parseErrors++
+          break
+        case 'write_failed':
+          stats.writeFailures = (stats.writeFailures ?? 0) + 1
+          break
+        case 'card_missing':
+          stats.cardMissing = (stats.cardMissing ?? 0) + 1
+          break
+        default:
+          break
       }
     }
 
-    if (!dryRun) {
-      for (const row of persistableRows) {
-        await this.upsertTransaction(row)
-      }
-      if (maxReceivedAtMs > 0) {
-        await this.updateWatermark(bank, maxReceivedAtMs, window.source, startDate)
-      }
+    if (!dryRun && maxReceivedAtMs > 0) {
+      await this.updateWatermark(bank, maxReceivedAtMs, window.source, startDate)
     }
 
-    stats.inserted = persistableRows.length
+    stats.inserted = inserted
     return {
       bankKey: bank.bankKey,
       summary: `${bank.bankKey}: inserted ${stats.inserted} rows`,
       stats,
+    }
+  }
+
+  async listFailures(filters: {
+    status?: ImportFailureStatus
+    failureType?: ImportFailureType
+    bankKeys?: string[]
+    page?: number
+    pageSize?: number
+  }): Promise<ImportFailureListResult> {
+    return this.importFailureService.listFailures(filters)
+  }
+
+  async retryFailures(options: {
+    ids?: string[]
+    bankKeys?: string[]
+    limit?: number
+    dryRun?: boolean
+  }): Promise<ImportFailureRetryResult> {
+    const dryRun = Boolean(options.dryRun)
+    const selected = await this.importFailureService.getFailuresForRetry({
+      ids: options.ids,
+      bankKeys: options.bankKeys,
+      limit: options.limit,
+    })
+    const existingKeys = await this.getExistingDedupKeys()
+    const breakdown: ImportFailureRetryResult['bankBreakdown'] = {}
+    let resolved = 0
+    let stillOpen = 0
+    let notFoundInGmail = 0
+
+    for (const failure of selected) {
+      if (!breakdown[failure.bankKey]) {
+        breakdown[failure.bankKey] = { attempted: 0, resolved: 0, stillOpen: 0, notFoundInGmail: 0 }
+      }
+      breakdown[failure.bankKey].attempted++
+      if (!dryRun) {
+        await this.importFailureService.markRetrying(failure.id)
+      }
+      const bank = this.getBankConfigByKey(failure.bankKey)
+      if (!bank) {
+        stillOpen++
+        breakdown[failure.bankKey].stillOpen++
+        if (!dryRun) {
+          await this.importFailureService.markOpenWithError({
+            id: failure.id,
+            failureReason: 'unknown_bank_key',
+            errorText: `Bank config not found for ${failure.bankKey}`,
+          })
+        }
+        continue
+      }
+
+      const message = await this.gmailPoll.fetchByMessageId(failure.messageId)
+      if (!message) {
+        notFoundInGmail++
+        breakdown[failure.bankKey].notFoundInGmail++
+        if (!dryRun) {
+          await this.importFailureService.markOpenWithError({
+            id: failure.id,
+            failureReason: 'gmail_message_not_found',
+            errorText: `Gmail message ${failure.messageId} not found`,
+          })
+        }
+        continue
+      }
+
+      const outcome = await this.processMessage(bank, message, existingKeys, dryRun, failure.id)
+      if (outcome.kind === 'inserted' || outcome.kind === 'duplicate') {
+        resolved++
+        breakdown[failure.bankKey].resolved++
+        if (!dryRun) {
+          await this.importFailureService.markResolved({ id: failure.id, resolvedTxnId: outcome.txnId ?? null })
+        }
+        continue
+      }
+
+      stillOpen++
+      breakdown[failure.bankKey].stillOpen++
+      if (!dryRun) {
+        await this.importFailureService.markOpenWithError({
+          id: failure.id,
+          failureReason: outcome.reason,
+          errorText: outcome.errorText,
+        })
+      }
+    }
+
+    const attempted = selected.length
+    return {
+      selected: attempted,
+      attempted,
+      resolved,
+      stillOpen,
+      notFoundInGmail,
+      bankBreakdown: breakdown,
+    }
+  }
+
+  async rebaseWatermark(options: {
+    days?: number
+    bankKeys?: string[]
+    dryRun?: boolean
+  }): Promise<WatermarkRebaseResult> {
+    const days = Math.max(1, Math.min(90, options.days ?? DEFAULT_REBASE_DAYS))
+    const dryRun = Boolean(options.dryRun)
+    const now = new Date()
+    const watermarkDate = new Date(now)
+    watermarkDate.setDate(watermarkDate.getDate() - days)
+    const cutoffMs = watermarkDate.getTime()
+    const banks = this.filterBanks(options.bankKeys)
+    const rows: WatermarkRebaseResult['banks'] = []
+
+    for (const bank of banks) {
+      if (!dryRun) {
+        await this.updateWatermark(bank, cutoffMs, 'watermark', watermarkDate.toISOString().slice(0, 10))
+      }
+      rows.push({
+        bankKey: bank.bankKey,
+        watermarkIso: watermarkDate.toISOString(),
+        watermarkCutoffMs: cutoffMs,
+        updated: !dryRun,
+      })
+    }
+
+    return {
+      dryRun,
+      days,
+      rebasedAtIso: now.toISOString(),
+      banks: rows,
     }
   }
 
@@ -283,15 +410,19 @@ export class CcTxnImportService {
     })
   }
 
-  private async upsertTransaction(row: PersistableTransaction): Promise<void> {
+  private async upsertTransaction(row: PersistableTransaction): Promise<{
+    kind: 'inserted' | 'duplicate' | 'card_missing' | 'write_failed'
+    txnId?: string
+    errorText?: string
+  }> {
     const card = await this.prisma.card.findFirst({
       where: { cardKey: row.cardKey },
       select: { id: true, tenantId: true },
     })
-    if (!card) return
+    if (!card) return { kind: 'card_missing', errorText: `Card not found for key ${row.cardKey}` }
 
     try {
-      await this.prisma.transaction.create({
+      const created = await this.prisma.transaction.create({
         data: {
           tenantId: card.tenantId,
           cardId: card.id,
@@ -310,8 +441,113 @@ export class CcTxnImportService {
           updatedBy: IMPORT_ACTOR,
         },
       })
-    } catch {
-      // Dedup unique constraint collision on retry/concurrent processing.
+      return { kind: 'inserted', txnId: created.id }
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return { kind: 'duplicate' }
+      }
+      return { kind: 'write_failed', errorText: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  private async processMessage(
+    bank: BankConfig,
+    message: PolledMessage,
+    existingKeys: Set<string>,
+    dryRun: boolean,
+    retryFailureId?: string,
+  ): Promise<
+    | { kind: 'inserted'; txnId?: string }
+    | { kind: 'duplicate'; txnId?: string }
+    | { kind: 'skipped'; reason: string; errorText?: string }
+    | { kind: 'parse_miss'; reason: string; errorText?: string }
+    | { kind: 'parse_error'; reason: string; errorText?: string }
+    | { kind: 'write_failed'; reason: string; errorText?: string }
+    | { kind: 'card_missing'; reason: string; errorText?: string }
+  > {
+    if (bank.senderAllowlist?.length) {
+      const from = message.from.toLowerCase()
+      const allowed = bank.senderAllowlist.some((sender) => from.includes(sender.toLowerCase()))
+      if (!allowed) {
+        return { kind: 'skipped', reason: 'sender_not_allowed' }
+      }
+    }
+
+    try {
+      const parsed = this.parseMessage(bank, message)
+      if (!parsed) {
+        this.logParserMiss(bank.bankKey, message, 'parser_returned_null')
+        await this.importFailureService.upsertFailure({
+          bankKey: bank.bankKey,
+          message,
+          failureType: 'PARSE_MISS',
+          failureReason: 'parser_returned_null',
+        })
+        return { kind: 'parse_miss', reason: 'parser_returned_null' }
+      }
+      if (!this.validateCardRules(bank, parsed)) {
+        this.logParserMiss(bank.bankKey, message, 'card_rule_mismatch')
+        await this.importFailureService.upsertFailure({
+          bankKey: bank.bankKey,
+          message,
+          failureType: 'CARD_RULE_MISMATCH',
+          failureReason: 'card_rule_mismatch',
+        })
+        return { kind: 'skipped', reason: 'card_rule_mismatch' }
+      }
+
+      const dedupeKey = this.makeDedupKey(parsed)
+      if (existingKeys.has(dedupeKey)) {
+        return { kind: 'duplicate' }
+      }
+
+      existingKeys.add(dedupeKey)
+      if (dryRun) {
+        return { kind: 'inserted' }
+      }
+
+      const write = await this.upsertTransaction(this.toPersistable(parsed, dedupeKey))
+      if (write.kind === 'inserted') {
+        if (retryFailureId) {
+          await this.importFailureService.markResolved({ id: retryFailureId, resolvedTxnId: write.txnId ?? null })
+        }
+        return { kind: 'inserted', txnId: write.txnId }
+      }
+      if (write.kind === 'duplicate') {
+        if (retryFailureId) {
+          await this.importFailureService.markResolved({ id: retryFailureId })
+        }
+        return { kind: 'duplicate' }
+      }
+      if (write.kind === 'card_missing') {
+        await this.importFailureService.upsertFailure({
+          bankKey: bank.bankKey,
+          message,
+          failureType: 'CARD_NOT_FOUND',
+          failureReason: 'card_not_found',
+          errorText: write.errorText,
+        })
+        return { kind: 'card_missing', reason: 'card_not_found', errorText: write.errorText }
+      }
+
+      await this.importFailureService.upsertFailure({
+        bankKey: bank.bankKey,
+        message,
+        failureType: 'WRITE_FAILED',
+        failureReason: 'write_failed',
+        errorText: write.errorText,
+      })
+      return { kind: 'write_failed', reason: 'write_failed', errorText: write.errorText }
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error)
+      await this.importFailureService.upsertFailure({
+        bankKey: bank.bankKey,
+        message,
+        failureType: 'PARSE_ERROR',
+        failureReason: 'parse_exception',
+        errorText,
+      })
+      return { kind: 'parse_error', reason: 'parse_exception', errorText }
     }
   }
 
@@ -358,6 +594,10 @@ export class CcTxnImportService {
     if (!bankKeys?.length) return DEFAULT_BANKS
     const wanted = new Set(bankKeys)
     return DEFAULT_BANKS.filter((b) => wanted.has(b.bankKey))
+  }
+
+  private getBankConfigByKey(bankKey: string): BankConfig | null {
+    return DEFAULT_BANKS.find((bank) => bank.bankKey === bankKey) ?? null
   }
 
   private emptyStats(): BankImportStats {

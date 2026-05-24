@@ -1,6 +1,8 @@
 export type ImportJobStatus = 'OK' | 'PARTIAL' | 'FAILURE' | 'SKIPPED_LOCKED'
 
 export type ImportWindowSource = 'watermark' | 'firestore_max_txn' | 'none'
+export type ImportFailureStatus = 'OPEN' | 'RETRYING' | 'RESOLVED' | 'IGNORED'
+export type ImportFailureType = 'PARSE_MISS' | 'PARSE_ERROR' | 'CARD_RULE_MISMATCH' | 'WRITE_FAILED' | 'CARD_NOT_FOUND'
 
 export type BankParserName = 'parseSbiTxn' | 'parseHdfcTxn' | 'parseIciciTxn'
 
@@ -58,6 +60,8 @@ export interface BankImportStats {
   skipped: number
   parseMiss: number
   parseErrors: number
+  writeFailures?: number
+  cardMissing?: number
 }
 
 export interface BankImportResult {
@@ -88,4 +92,55 @@ export interface PolledMessage {
   from: string
   subject: string
   body: string
+}
+
+export interface ImportFailureRecord {
+  id: string
+  jobKey: string
+  bankKey: string
+  messageId: string
+  receivedAtMs: number | null
+  fromAddress: string | null
+  subject: string | null
+  bodyPreview: string | null
+  failureType: ImportFailureType
+  failureReason: string
+  errorText: string | null
+  status: ImportFailureStatus
+  attemptCount: number
+  firstSeenAt: string
+  lastSeenAt: string
+  lastRetriedAt: string | null
+  resolvedAt: string | null
+  resolvedTxnId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ImportFailureListResult {
+  items: ImportFailureRecord[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface ImportFailureRetryResult {
+  selected: number
+  attempted: number
+  resolved: number
+  stillOpen: number
+  notFoundInGmail: number
+  bankBreakdown: Record<string, { attempted: number; resolved: number; stillOpen: number; notFoundInGmail: number }>
+}
+
+export interface WatermarkRebaseResult {
+  dryRun: boolean
+  days: number
+  rebasedAtIso: string
+  banks: Array<{
+    bankKey: string
+    watermarkIso: string
+    watermarkCutoffMs: number
+    updated: boolean
+  }>
 }
