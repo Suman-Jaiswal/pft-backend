@@ -13,7 +13,11 @@ export class HdfcParser {
 
     const merchant = this.resolveMerchant(source)
     const referenceNo = (source.match(/(?:Ref|Reference|Txn)\s*[:#-]?\s*([A-Za-z0-9-]+)/i)?.[1] ?? '').trim()
-    const last4 = (message.body.match(/(?:xx|XX)(\d{4})/)?.[1] ?? '').trim()
+    const last4 = (
+      source.match(/(?:ending(?:\s+with)?|xx|XX)\s*(\d{4})/i)?.[1] ??
+      message.body.match(/(?:xx|XX)(\d{4})/)?.[1] ??
+      ''
+    ).trim()
     if (!last4) return null
 
     const ts = new Date(message.receivedAtMs).toISOString()

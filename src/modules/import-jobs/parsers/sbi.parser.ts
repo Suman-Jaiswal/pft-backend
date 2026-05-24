@@ -19,11 +19,16 @@ export class SbiParser {
       ).trim()
     const referenceNo =
       (
-        source.match(/UPI Ref No[:\s-]*([A-Z0-9]+)/i)?.[1] ??
-        source.match(/Ref(?:erence)?\s*(?:No|Number)?[:\s-]*([A-Z0-9]+)/i)?.[1] ??
+        source.match(/UPI Ref No\.?[:\s-]*([A-Z0-9]+)/i)?.[1] ??
+        source.match(/Ref(?:erence)?\s*(?:No|Number)\.?\s*[:\s-]*([A-Z0-9]+)/i)?.[1] ??
+        source.match(/Ref(?:erence)?\s*[:#-]\s*([A-Z0-9]+)/i)?.[1] ??
         ''
       ).trim()
-    const last4 = (message.body.match(/(?:XX|x{2})(\d{4})/)?.[1] ?? '').trim()
+    const last4 = (
+      source.match(/ending(?:\s+with)?\s*(\d{4})/i)?.[1] ??
+      message.body.match(/(?:XX|x{2})(\d{4})/)?.[1] ??
+      ''
+    ).trim()
     if (!last4) return null
 
     const ts = new Date(message.receivedAtMs).toISOString()
