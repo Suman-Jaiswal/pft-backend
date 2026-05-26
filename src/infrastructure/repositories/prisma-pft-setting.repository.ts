@@ -26,7 +26,9 @@ function toEntity(row: PftSetting): PftSettingEntity {
     Number(row.defaultOtherExpenses),
     Number(row.prevLiquidBalance),
     Number(row.prevInvestmentBalance),
+    Number(row.stashBalance ?? 0),
     row.dashboardYearRange,
+    Number(row.dashboardBaselineVersion ?? 1),
   )
 }
 
@@ -57,7 +59,9 @@ export class PrismaPftSettingRepository implements IPftSettingRepository {
         defaultOtherExpenses: setting.defaultOtherExpenses,
         prevLiquidBalance: setting.prevLiquidBalance,
         prevInvestmentBalance: setting.prevInvestmentBalance,
+        stashBalance: setting.stashBalance,
         dashboardYearRange: setting.dashboardYearRange ?? undefined,
+        dashboardBaselineVersion: setting.dashboardBaselineVersion,
         updatedBy: setting.updatedBy,
       },
       create: {
@@ -77,7 +81,9 @@ export class PrismaPftSettingRepository implements IPftSettingRepository {
         defaultOtherExpenses: setting.defaultOtherExpenses,
         prevLiquidBalance: setting.prevLiquidBalance,
         prevInvestmentBalance: setting.prevInvestmentBalance,
+        stashBalance: setting.stashBalance,
         dashboardYearRange: setting.dashboardYearRange ?? undefined,
+        dashboardBaselineVersion: setting.dashboardBaselineVersion,
         createdBy: setting.createdBy,
         updatedBy: setting.updatedBy,
       },

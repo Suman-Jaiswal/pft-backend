@@ -223,9 +223,29 @@ model PftSetting {
   defaultOtherExpenses  Decimal  @default(0)
   prevLiquidBalance     Decimal  @default(0)
   prevInvestmentBalance Decimal  @default(0)
+  stashBalance          Decimal  @default(0)
   dashboardYearRange    String?
+  dashboardBaselineVersion Int   @default(1)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   createdBy             String
   updatedBy             String
+}
+
+model PftBaseline {
+  id        String   @id @default(cuid())
+  tenantId  String
+  periodKey String
+  version   Int
+  source    String
+  lockedAt  DateTime
+  lockedBy  String
+  metrics   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+  updatedBy String
+
+  @@unique([tenantId, periodKey, version], map: "uq_pft_baseline_tenant_period_version")
+  @@index([tenantId, periodKey], map: "idx_pft_baseline_tenant_period")
 }

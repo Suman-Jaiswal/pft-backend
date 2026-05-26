@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
 import { RolesGuard } from '@/shared/auth/roles.guard'
@@ -7,6 +7,10 @@ import { Role } from '@/shared/auth/role.enum'
 import { ok } from '@/shared/presentation/api-response'
 import { SettingsService } from '@/modules/settings/settings.service'
 import { UpdatePftSettingsDto } from '@/modules/settings/presentation/dto/update-pft-settings.dto'
+import { ListPftBaselinesQueryDto } from '@/modules/settings/presentation/dto/list-pft-baselines.query.dto'
+import { CreatePftBaselineDto } from '@/modules/settings/presentation/dto/create-pft-baseline.dto'
+import { GetPftBaselineQueryDto } from '@/modules/settings/presentation/dto/get-pft-baseline.query.dto'
+import { DeductStashDto } from '@/modules/settings/presentation/dto/deduct-stash.dto'
 
 type ReqUser = { user: { sub: string; tenantId: string } }
 
@@ -27,5 +31,42 @@ export class SettingsController {
   @Roles(Role.ADMIN, Role.USER)
   async patch(@Req() req: ReqUser, @Body() dto: UpdatePftSettingsDto) {
     return ok(await this.settingsService.updatePftSettings(req.user.tenantId, req.user.sub, dto))
+  }
+
+  @Get('baselines')
+  @Roles(Role.ADMIN, Role.USER)
+  async listBaselines(@Req() req: ReqUser, @Query() query: ListPftBaselinesQueryDto) {
+    return ok(await this.settingsService.listBaselines(req.user.tenantId, query.periodKey))
+  }
+
+  @Get('baselines/selected')
+  @Roles(Role.ADMIN, Role.USER)
+  async getBaseline(@Req() req: ReqUser, @Query() query: GetPftBaselineQueryDto) {
+    return ok(
+      await this.settingsService.getBaselineForVersion(
+        req.user.tenantId,
+        query.periodKey,
+        typeof query.version === 'number' ? query.version : undefined,
+      ),
+    )
+  }
+
+  @Post('baselines')
+  @Roles(Role.ADMIN, Role.USER)
+  async createBaseline(@Req() req: ReqUser, @Body() dto: CreatePftBaselineDto) {
+    return ok(
+      await this.settingsService.createBaseline(req.user.tenantId, req.user.sub, {
+        periodKey: dto.periodKey,
+        source: dto.source,
+        lockedBy: dto.lockedBy,
+        metrics: dto.metrics,
+      }),
+    )
+  }
+
+  @Post('stash/deduct')
+  @Roles(Role.ADMIN, Role.USER)
+  async deductStash(@Req() req: ReqUser, @Body() dto: DeductStashDto) {
+    return ok(await this.settingsService.deductStash(req.user.tenantId, req.user.sub, dto.amount))
   }
 }
