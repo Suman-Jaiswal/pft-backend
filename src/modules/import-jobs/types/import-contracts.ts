@@ -90,6 +90,17 @@ export interface ImportRunSummary {
   banks: BankImportResult[]
 }
 
+export interface CcTxnImportStatus {
+  reauthRequired: boolean
+  reason: 'credentials_missing' | 'last_run_reauth_required' | 'none'
+  hasCredential: boolean
+  credentialUpdatedAt: string | null
+  credentialEmail: string | null
+  lastRunAt: string | null
+  lastRunStatus: ImportJobStatus | null
+  lastRunErrorCode: ImportErrorCode | null
+}
+
 export interface PolledMessage {
   id: string
   receivedAtMs: number

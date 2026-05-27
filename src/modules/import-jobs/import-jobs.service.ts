@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common'
 import { CcTxnImportService } from '@/modules/import-jobs/services/cc-txn-import.service'
 import { ImportLockService } from '@/modules/import-jobs/services/import-lock.service'
+import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import {
+  CcTxnImportStatus,
   ImportFailureListResult,
   ImportFailureRetryResult,
   ImportFailureStatus,
@@ -18,6 +20,7 @@ export class ImportJobsService {
   constructor(
     private readonly lockService: ImportLockService,
     private readonly ccTxnImportService: CcTxnImportService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async runCcTxnImport(options: {
@@ -84,5 +87,46 @@ export class ImportJobsService {
     dryRun?: boolean
   }): Promise<WatermarkRebaseResult> {
     return this.ccTxnImportService.rebaseWatermark(options)
+  }
+
+  async getCcTxnImportStatus(tenantId: string): Promise<CcTxnImportStatus> {
+    const [setting, run] = await Promise.all([
+      this.prisma.pftSetting.findUnique({
+        where: { tenantId },
+        select: {
+          importGmailRefreshToken: true,
+          importGmailTokenUpdatedAt: true,
+          importGmailEmail: true,
+        },
+      }),
+      this.prisma.importJobRun.findFirst({
+        where: { jobKey: JOB_KEY },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true, status: true, payload: true },
+      }),
+    ])
+
+    const hasCredential = Boolean(setting?.importGmailRefreshToken?.trim())
+    const payload = (run?.payload ?? null) as
+      | { errorCode?: 'REAUTH_REQUIRED'; reauthRequired?: boolean }
+      | null
+    const runReauthRequired =
+      payload?.errorCode === 'REAUTH_REQUIRED' || payload?.reauthRequired === true
+    const reason: CcTxnImportStatus['reason'] = !hasCredential
+      ? 'credentials_missing'
+      : runReauthRequired
+        ? 'last_run_reauth_required'
+        : 'none'
+
+    return {
+      reauthRequired: reason !== 'none',
+      reason,
+      hasCredential,
+      credentialUpdatedAt: setting?.importGmailTokenUpdatedAt?.toISOString() ?? null,
+      credentialEmail: setting?.importGmailEmail ?? null,
+      lastRunAt: run?.createdAt?.toISOString() ?? null,
+      lastRunStatus: (run?.status as ImportRunSummary['status'] | undefined) ?? null,
+      lastRunErrorCode: payload?.errorCode ?? null,
+    }
   }
 }

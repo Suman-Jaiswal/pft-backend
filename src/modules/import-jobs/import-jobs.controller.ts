@@ -1,7 +1,9 @@
 import {
+  Req,
   Body,
   Controller,
   Get,
+  UseGuards,
   Headers,
   HttpCode,
   HttpStatus,
@@ -9,18 +11,30 @@ import {
   Query,
   UnauthorizedException,
 } from '@nestjs/common'
-import { ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { ok } from '@/shared/presentation/api-response'
 import { ImportJobsService } from '@/modules/import-jobs/import-jobs.service'
 import { RunCcTxnImportDto } from '@/modules/import-jobs/dto/run-cc-txn-import.dto'
 import { ListCcTxnFailuresDto } from '@/modules/import-jobs/dto/list-cc-txn-failures.dto'
 import { RetryCcTxnFailuresDto } from '@/modules/import-jobs/dto/retry-cc-txn-failures.dto'
 import { RebaseWatermarkDto } from '@/modules/import-jobs/dto/rebase-watermark.dto'
+import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
 
 @ApiTags('import-jobs')
 @Controller({ path: 'import-jobs', version: '1' })
 export class ImportJobsController {
   constructor(private readonly importJobsService: ImportJobsService) {}
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('cc-txn-import/status')
+  @HttpCode(HttpStatus.OK)
+  async getCcTxnImportStatus(
+    @Req() req: { user: { tenantId: string } },
+  ) {
+    const result = await this.importJobsService.getCcTxnImportStatus(req.user.tenantId)
+    return ok(result)
+  }
 
   @Post('cc-txn-import')
   @HttpCode(HttpStatus.OK)
