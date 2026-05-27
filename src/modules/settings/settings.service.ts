@@ -55,6 +55,10 @@ export class SettingsService {
       0,
       null,
       1,
+      null,
+      null,
+      null,
+      null,
     )
     return this.repository.upsert(defaults)
   }
@@ -89,6 +93,10 @@ export class SettingsService {
       dto.stashBalance ?? current.stashBalance,
       dto.dashboardYearRange ?? current.dashboardYearRange,
       dto.dashboardBaselineVersion ?? current.dashboardBaselineVersion,
+      current.importGmailRefreshToken,
+      current.importGmailEmail,
+      current.importGmailScope,
+      current.importGmailTokenUpdatedAt,
     )
     return this.repository.upsert(updated)
   }
@@ -120,6 +128,10 @@ export class SettingsService {
       nextStash,
       current.dashboardYearRange,
       current.dashboardBaselineVersion,
+      current.importGmailRefreshToken,
+      current.importGmailEmail,
+      current.importGmailScope,
+      current.importGmailTokenUpdatedAt,
     )
     return this.repository.upsert(updated)
   }

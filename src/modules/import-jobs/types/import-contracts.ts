@@ -1,4 +1,5 @@
 export type ImportJobStatus = 'OK' | 'PARTIAL' | 'FAILURE' | 'SKIPPED_LOCKED'
+export type ImportErrorCode = 'REAUTH_REQUIRED'
 
 export type ImportWindowSource = 'watermark' | 'firestore_max_txn' | 'none'
 export type ImportFailureStatus = 'OPEN' | 'RETRYING' | 'RESOLVED' | 'IGNORED'
@@ -69,11 +70,14 @@ export interface BankImportResult {
   summary: string
   stats: BankImportStats
   error?: string
+  errorCode?: ImportErrorCode
 }
 
 export interface ImportRunSummary {
   job: 'cc_txn_import'
   status: ImportJobStatus
+  errorCode?: ImportErrorCode
+  reauthRequired?: boolean
   startedAt: string
   completedAt: string
   elapsedMs: number

@@ -226,6 +226,10 @@ model PftSetting {
   stashBalance          Decimal  @default(0)
   dashboardYearRange    String?
   dashboardBaselineVersion Int   @default(1)
+  importGmailRefreshToken String?
+  importGmailEmail        String?
+  importGmailScope        String?
+  importGmailTokenUpdatedAt DateTime?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   createdBy             String

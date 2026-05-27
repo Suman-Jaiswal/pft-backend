@@ -25,6 +25,10 @@ export class PftSettingEntity extends BaseEntity {
     public readonly stashBalance: number,
     public readonly dashboardYearRange: string | null,
     public readonly dashboardBaselineVersion: number,
+    public readonly importGmailRefreshToken: string | null,
+    public readonly importGmailEmail: string | null,
+    public readonly importGmailScope: string | null,
+    public readonly importGmailTokenUpdatedAt: Date | null,
   ) {
     super(id, tenantId, createdAt, updatedAt, createdBy, updatedBy)
   }

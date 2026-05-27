@@ -89,11 +89,15 @@ Reference docs:
 - `docs/domain/cc-txn-import-parser-parity.md`
 - `docs/domain/cc-txn-import-rollout.md`
 
-Generate Gmail refresh token (one-time):
+Gmail import re-auth (recommended):
 
-- `npm run gmail:token`
-- Requires `.env` with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
-- Script prints `IMPORT_GMAIL_REFRESH_TOKEN=...` to copy into `.env`
+- Open: `GET /api/v1/auth/google/import/start`
+- Complete consent for Gmail readonly scope
+- Callback persists refresh token in `PftSetting` for your tenant
+- Configure:
+  - `IMPORT_GOOGLE_REDIRECT_URI`
+  - `IMPORT_REAUTH_SUCCESS_REDIRECT`
+  - `IMPORT_REAUTH_ERROR_REDIRECT`
 
 ## Seed Initial Owner User
 

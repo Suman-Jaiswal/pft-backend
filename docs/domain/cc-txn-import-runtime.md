@@ -12,7 +12,8 @@
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `IMPORT_GMAIL_REFRESH_TOKEN`
+- `IMPORT_GOOGLE_REDIRECT_URI` (for reauth callback)
+- refresh token is persisted in DB: `PftSetting.importGmailRefreshToken` (no env fallback)
 - `IMPORT_GMAIL_USER` (default: `me`)
 - `IMPORT_GMAIL_MAX_RESULTS` (default: `500`)
 - `IMPORT_LABEL_SBI` (default: `CC Transactions/SBI`)
@@ -20,6 +21,11 @@
 - `IMPORT_LABEL_ICICI` (default: `CC Transactions/ICICI`)
 - `IMPORT_DEBUG_PARSER_INPUT` (default: `false`) — log parser miss message body previews
 - `IMPORT_DEBUG_BODY_MAX_LEN` (default: `1200`) — max chars logged from body
+
+## Re-auth endpoint
+
+- Start flow: `GET /api/v1/auth/google/import/start`
+- Callback: `GET /api/v1/auth/google/import/callback`
 
 ## Scheduler
 

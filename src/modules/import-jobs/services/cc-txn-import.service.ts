@@ -13,6 +13,7 @@ import {
   ImportFailureRetryResult,
   BankImportResult,
   BankImportStats,
+  ImportErrorCode,
   ImportFailureType,
   ImportWindowSource,
   ImportRunSummary,
@@ -28,6 +29,7 @@ import {
 const JOB_KEY = 'cc_txn_import'
 const IMPORT_ACTOR = 'import-job'
 const DEFAULT_REBASE_DAYS = 10
+const REAUTH_REQUIRED_CODE: ImportErrorCode = 'REAUTH_REQUIRED'
 
 const DEFAULT_BANKS: BankConfig[] = [
   {
@@ -85,10 +87,12 @@ export class CcTxnImportService {
         bankResults.push(result)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
+        const errorCode = this.resolveImportErrorCode(error)
         bankResults.push({
           bankKey: bank.bankKey,
           summary: `${bank.bankKey}: FAILED - ${message}`,
           error: message,
+          errorCode,
           stats: this.emptyStats(),
         })
       }
@@ -108,12 +112,15 @@ export class CcTxnImportService {
     )
 
     const failureCount = bankResults.filter((r) => Boolean(r.error)).length
+    const reauthRequired = bankResults.some((r) => r.errorCode === REAUTH_REQUIRED_CODE)
     const status =
       failureCount === 0 ? 'OK' : aggregate.inserted > 0 ? 'PARTIAL' : 'FAILURE'
     const completedAt = new Date()
     const summary: ImportRunSummary = {
       job: 'cc_txn_import',
       status,
+      errorCode: reauthRequired ? REAUTH_REQUIRED_CODE : undefined,
+      reauthRequired,
       startedAt: startedAt.toISOString(),
       completedAt: completedAt.toISOString(),
       elapsedMs: completedAt.getTime() - startedAt.getTime(),
@@ -624,5 +631,42 @@ export class CcTxnImportService {
     this.logger.warn(
       `[ParserMiss] bank=${bankKey} reason=${reason} id=${message.id} subject="${message.subject}" from="${message.from}" body="${preview}"`,
     )
+  }
+
+  private resolveImportErrorCode(error: unknown): ImportErrorCode | undefined {
+    if (this.isReauthRequiredError(error)) {
+      return REAUTH_REQUIRED_CODE
+    }
+    return undefined
+  }
+
+  private isReauthRequiredError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false
+
+    const maybeError = error as {
+      message?: unknown
+      response?: { data?: { error?: unknown; error_description?: unknown } | unknown }
+    }
+
+    const message = String(maybeError.message ?? '').toLowerCase()
+    if (message.includes('invalid_grant')) return true
+    if (message.includes('reauth_required')) return true
+
+    const responseData = maybeError.response?.data
+    if (!responseData) return false
+
+    if (typeof responseData === 'string') {
+      return responseData.toLowerCase().includes('invalid_grant')
+    }
+
+    if (typeof responseData === 'object') {
+      const errorCode = String((responseData as { error?: unknown }).error ?? '').toLowerCase()
+      const errorDescription = String(
+        (responseData as { error_description?: unknown }).error_description ?? '',
+      ).toLowerCase()
+      return errorCode.includes('invalid_grant') || errorDescription.includes('invalid_grant')
+    }
+
+    return false
   }
 }

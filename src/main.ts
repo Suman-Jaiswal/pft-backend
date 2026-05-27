@@ -74,6 +74,12 @@ async function bootstrap(): Promise<void> {
       : "";
     res.redirect(307, `/api/v1/auth/google/callback${qs}`);
   });
+  expressApp.get("/v1/auth/google/import/callback", (req, res) => {
+    const qs = req.originalUrl.includes("?")
+      ? req.originalUrl.slice(req.originalUrl.indexOf("?"))
+      : "";
+    res.redirect(307, `/api/v1/auth/google/import/callback${qs}`);
+  });
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 

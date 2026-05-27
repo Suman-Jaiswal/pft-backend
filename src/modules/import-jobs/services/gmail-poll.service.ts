@@ -2,25 +2,30 @@ import { Injectable, Logger } from '@nestjs/common'
 import { gmail_v1, google } from 'googleapis'
 import { appConfig } from '@/config/app.config'
 import { PolledMessage } from '@/modules/import-jobs/types/import-contracts'
+import { PrismaService } from '@/infrastructure/prisma/prisma.service'
+
+type GmailCredential = {
+  refreshToken: string
+  email: string | null
+}
 
 @Injectable()
 export class GmailPollService {
   private readonly logger = new Logger(GmailPollService.name)
+  constructor(private readonly prisma: PrismaService) {}
 
   async pollByLabel(labelName: string, afterDate: string): Promise<PolledMessage[]> {
     const clientId = appConfig.googleClientId
     const clientSecret = appConfig.googleClientSecret
-    const refreshToken = appConfig.importGmailRefreshToken
     const userId = appConfig.importGmailUser || 'me'
+    const credential = await this.loadImportCredential()
 
-    if (!clientId || !clientSecret || !refreshToken) {
-      this.logger.warn(
-        'Gmail import credentials not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, IMPORT_GMAIL_REFRESH_TOKEN.',
-      )
-      return []
+    if (!clientId || !clientSecret) {
+      this.logger.warn('Gmail import credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.')
+      throw new Error('reauth_required: google_client_credentials_missing')
     }
 
-    const gmail = this.getGmailClient(clientId, clientSecret, refreshToken)
+    const gmail = this.getGmailClient(clientId, clientSecret, credential.refreshToken)
     const query = `label:"${labelName}" after:${afterDate.replace(/-/g, '/')}`
 
     const messageIds = await this.listMessageIdsWithRetry(gmail, userId, query, appConfig.importGmailMaxResults)
@@ -39,17 +44,15 @@ export class GmailPollService {
   async fetchByMessageId(messageId: string): Promise<PolledMessage | null> {
     const clientId = appConfig.googleClientId
     const clientSecret = appConfig.googleClientSecret
-    const refreshToken = appConfig.importGmailRefreshToken
     const userId = appConfig.importGmailUser || 'me'
+    const credential = await this.loadImportCredential()
 
-    if (!clientId || !clientSecret || !refreshToken) {
-      this.logger.warn(
-        'Gmail import credentials not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, IMPORT_GMAIL_REFRESH_TOKEN.',
-      )
-      return null
+    if (!clientId || !clientSecret) {
+      this.logger.warn('Gmail import credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.')
+      throw new Error('reauth_required: google_client_credentials_missing')
     }
 
-    const gmail = this.getGmailClient(clientId, clientSecret, refreshToken)
+    const gmail = this.getGmailClient(clientId, clientSecret, credential.refreshToken)
     const message = await this.fetchMessageWithRetry(gmail, userId, messageId)
     if (!message) return null
 
@@ -105,6 +108,19 @@ export class GmailPollService {
     const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, appConfig.googleRedirectUri || undefined)
     oauth2Client.setCredentials({ refresh_token: refreshToken })
     return google.gmail({ version: 'v1', auth: oauth2Client })
+  }
+
+  private async loadImportCredential(): Promise<GmailCredential> {
+    const row = await this.prisma.pftSetting.findFirst({
+      where: { importGmailRefreshToken: { not: null } },
+      orderBy: { importGmailTokenUpdatedAt: 'desc' },
+      select: { importGmailRefreshToken: true, importGmailEmail: true },
+    })
+    const refreshToken = row?.importGmailRefreshToken?.trim()
+    if (!refreshToken) {
+      throw new Error('reauth_required: import_gmail_refresh_token_missing')
+    }
+    return { refreshToken, email: row?.importGmailEmail ?? null }
   }
 
   private mapToPolledMessage(msg: gmail_v1.Schema$Message): PolledMessage | null {

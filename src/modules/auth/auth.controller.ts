@@ -28,11 +28,32 @@ export class AuthController {
     return ok({ url: this.authService.getGoogleAuthUrl(query.state) })
   }
 
+  @Get('google/import/start')
+  googleImportStart(@Query() query: GoogleStartQueryDto, @Res() res: Response) {
+    const url = this.authService.getGoogleImportAuthUrl(query.state)
+    return res.redirect(url)
+  }
+
   @Get('google/callback')
   async googleCallback(@Query() query: GoogleCallbackQueryDto, @Res() res: Response) {
     const out = await this.authService.googleCallback(query.code)
     const redirect = `${appConfig.authSuccessRedirect}?token=${encodeURIComponent(out.accessToken)}`
     return res.redirect(redirect)
+  }
+
+  @Get('google/import/callback')
+  async googleImportCallback(
+    @Query() query: GoogleCallbackQueryDto,
+    @Res() res: Response,
+  ) {
+    const targetBase = this.resolveImportReauthTarget(query.state)
+    try {
+      await this.authService.googleImportCallback(query.code)
+      return res.redirect(`${targetBase}?reauth=success`)
+    } catch (error) {
+      const message = encodeURIComponent(error instanceof Error ? error.message : 'Re-auth failed')
+      return res.redirect(`${targetBase}?reauth=error&message=${message}`)
+    }
   }
 
   @ApiBearerAuth()
@@ -54,5 +75,16 @@ export class AuthController {
   @Post('logout')
   async logout() {
     return ok({ loggedOut: true })
+  }
+
+  private resolveImportReauthTarget(rawState?: string): string {
+    if (!rawState) return appConfig.importReauthSuccessRedirect
+    const decoded = decodeURIComponent(rawState)
+    if (decoded.startsWith('http://') || decoded.startsWith('https://')) return decoded
+    if (decoded.startsWith('/')) {
+      const base = appConfig.importReauthSuccessRedirect.replace(/\/+$/, '')
+      return `${base}${decoded}`
+    }
+    return appConfig.importReauthSuccessRedirect
   }
 }

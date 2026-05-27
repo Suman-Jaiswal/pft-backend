@@ -29,6 +29,10 @@ function toEntity(row: PftSetting): PftSettingEntity {
     Number(row.stashBalance ?? 0),
     row.dashboardYearRange,
     Number(row.dashboardBaselineVersion ?? 1),
+    row.importGmailRefreshToken,
+    row.importGmailEmail,
+    row.importGmailScope,
+    row.importGmailTokenUpdatedAt,
   )
 }
 
@@ -62,6 +66,10 @@ export class PrismaPftSettingRepository implements IPftSettingRepository {
         stashBalance: setting.stashBalance,
         dashboardYearRange: setting.dashboardYearRange ?? undefined,
         dashboardBaselineVersion: setting.dashboardBaselineVersion,
+        importGmailRefreshToken: setting.importGmailRefreshToken ?? undefined,
+        importGmailEmail: setting.importGmailEmail ?? undefined,
+        importGmailScope: setting.importGmailScope ?? undefined,
+        importGmailTokenUpdatedAt: setting.importGmailTokenUpdatedAt ?? undefined,
         updatedBy: setting.updatedBy,
       },
       create: {
@@ -84,6 +92,10 @@ export class PrismaPftSettingRepository implements IPftSettingRepository {
         stashBalance: setting.stashBalance,
         dashboardYearRange: setting.dashboardYearRange ?? undefined,
         dashboardBaselineVersion: setting.dashboardBaselineVersion,
+        importGmailRefreshToken: setting.importGmailRefreshToken ?? undefined,
+        importGmailEmail: setting.importGmailEmail ?? undefined,
+        importGmailScope: setting.importGmailScope ?? undefined,
+        importGmailTokenUpdatedAt: setting.importGmailTokenUpdatedAt ?? undefined,
         createdBy: setting.createdBy,
         updatedBy: setting.updatedBy,
       },

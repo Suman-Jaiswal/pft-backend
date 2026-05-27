@@ -46,8 +46,11 @@ async function main(): Promise<void> {
     )
   }
 
-  console.log('\nSet this in your .env:\n')
-  console.log(`IMPORT_GMAIL_REFRESH_TOKEN=${refreshToken}\n`)
+  console.log('\nRefresh token generated.\n')
+  console.log('This backend now persists import Gmail tokens in DB via OAuth callback.')
+  console.log('Use /api/v1/auth/google/import/start for production re-auth.')
+  console.log('Temporary token value (do not commit/store in plain text):')
+  console.log(`${refreshToken}\n`)
 }
 
 main().catch((error) => {
