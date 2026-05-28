@@ -22,27 +22,29 @@ export class MonthlyPlansService {
 
   private calcFreeCash(input: {
     salary: number
-    otherIncome: number
+    otherSources: number
     rent: number
     cook: number
     bills: number
-    sip: number
-    liquidSaved: number
-    investment: number
+    sipMf: number
+    savings: number
+    stocks: number
+    fd: number
     otherExpenses: number
     loanPaymentsTotal: number
     customExpensesTotal: number
   }): number {
-    const income = input.salary + input.otherIncome
+    const income = input.salary + input.otherSources
     const expenseOut =
       input.rent +
       input.cook +
       input.bills +
-      input.investment +
+      input.stocks +
+      input.fd +
       input.otherExpenses +
       input.loanPaymentsTotal +
       input.customExpensesTotal
-    const savingsAllocation = input.sip + input.liquidSaved
+    const savingsAllocation = input.sipMf + input.savings
     return income - (expenseOut + savingsAllocation)
   }
 
@@ -70,13 +72,14 @@ export class MonthlyPlansService {
       const oldFreeCash = existing
         ? this.calcFreeCash({
             salary: this.toNumber(existing.salary),
-            otherIncome: this.toNumber(existing.otherIncome),
+            otherSources: this.toNumber(existing.otherSources),
             rent: this.toNumber(existing.rent),
             cook: this.toNumber(existing.cook),
             bills: this.toNumber(existing.bills),
-            sip: this.toNumber(existing.sip),
-            liquidSaved: this.toNumber(existing.liquidSaved),
-            investment: this.toNumber(existing.investment),
+            sipMf: this.toNumber(existing.sipMf),
+            savings: this.toNumber(existing.savings),
+            stocks: this.toNumber(existing.stocks),
+            fd: this.toNumber(existing.fd),
             otherExpenses: this.toNumber(existing.otherExpenses),
             loanPaymentsTotal: this.sumAmounts(existing.loanPayments),
             customExpensesTotal: this.sumAmounts(existing.customExpenses),
@@ -87,13 +90,14 @@ export class MonthlyPlansService {
       const mergedCustomExpenses = (dto.customExpenses ?? (existing?.customExpenses as unknown[]) ?? []) as unknown[]
       const newFreeCash = this.calcFreeCash({
         salary: this.toNumber(dto.salary ?? existing?.salary ?? 0),
-        otherIncome: this.toNumber(dto.otherIncome ?? existing?.otherIncome ?? 0),
+        otherSources: this.toNumber(dto.otherSources ?? existing?.otherSources ?? 0),
         rent: this.toNumber(dto.rent ?? existing?.rent ?? 0),
         cook: this.toNumber(dto.cook ?? existing?.cook ?? 0),
         bills: this.toNumber(dto.bills ?? existing?.bills ?? 0),
-        sip: this.toNumber(dto.sip ?? existing?.sip ?? 0),
-        liquidSaved: this.toNumber(dto.liquidSaved ?? existing?.liquidSaved ?? 0),
-        investment: this.toNumber(dto.investment ?? existing?.investment ?? 0),
+        sipMf: this.toNumber(dto.sipMf ?? existing?.sipMf ?? 0),
+        savings: this.toNumber(dto.savings ?? existing?.savings ?? 0),
+        stocks: this.toNumber(dto.stocks ?? existing?.stocks ?? 0),
+        fd: this.toNumber(dto.fd ?? existing?.fd ?? 0),
         otherExpenses: this.toNumber(dto.otherExpenses ?? existing?.otherExpenses ?? 0),
         loanPaymentsTotal: this.sumAmounts(mergedLoanPayments),
         customExpensesTotal: this.sumAmounts(mergedCustomExpenses),
@@ -107,16 +111,17 @@ export class MonthlyPlansService {
         update: {
           rent: dto.rent,
           cook: dto.cook,
-          sip: dto.sip,
+          sipMf: dto.sipMf,
           bills: dto.bills,
           basicCcSpent: dto.basicCcSpent,
           loanPayments: dto.loanPayments as never,
-          investment: dto.investment,
-          liquidSaved: dto.liquidSaved,
+          stocks: dto.stocks,
+          fd: dto.fd,
+          savings: dto.savings,
           otherExpenses: dto.otherExpenses,
           customExpenses: dto.customExpenses as never,
           salary: dto.salary,
-          otherIncome: dto.otherIncome,
+          otherSources: dto.otherSources,
           banks: dto.banks as never,
           remarks: dto.remarks,
           updatedBy: actorId,
@@ -127,16 +132,17 @@ export class MonthlyPlansService {
           year: dto.year,
           rent: dto.rent ?? 0,
           cook: dto.cook ?? 0,
-          sip: dto.sip ?? 0,
+          sipMf: dto.sipMf ?? 0,
           bills: dto.bills ?? 0,
           basicCcSpent: dto.basicCcSpent ?? 0,
           loanPayments: (dto.loanPayments ?? []) as never,
-          investment: dto.investment ?? 0,
-          liquidSaved: dto.liquidSaved ?? 0,
+          stocks: dto.stocks ?? 0,
+          fd: dto.fd ?? 0,
+          savings: dto.savings ?? 0,
           otherExpenses: dto.otherExpenses ?? 0,
           customExpenses: (dto.customExpenses ?? []) as never,
           salary: dto.salary ?? 0,
-          otherIncome: dto.otherIncome ?? 0,
+          otherSources: dto.otherSources ?? 0,
           banks: (dto.banks ?? {}) as never,
           remarks: dto.remarks ?? '',
           createdBy: actorId,

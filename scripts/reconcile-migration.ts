@@ -56,18 +56,21 @@ async function main(): Promise<void> {
   ])
 
   const firestoreTotals = {
-    monthlyPlanInvestment: monthlyPlansFs.reduce((a, r) => a + toNum(r.data.investment), 0),
+    monthlyPlanInvestment: monthlyPlansFs.reduce(
+      (a, r) => a + toNum(r.data.stocks ?? r.data.investment) + toNum(r.data.fd),
+      0,
+    ),
     latestBillsTotalDue: latestBillsFs.reduce((a, r) => a + toNum(r.data.totalAmountDue ?? r.data.total_amount_due), 0),
     txAmount: txFs.reduce((a, r) => a + toNum(r.data.amount), 0),
   }
 
   const dbTotalsRaw = await Promise.all([
-    prisma.monthlyPlan.aggregate({ where: { tenantId: uid }, _sum: { investment: true } }),
+    prisma.monthlyPlan.aggregate({ where: { tenantId: uid }, _sum: { stocks: true, fd: true } }),
     prisma.statement.aggregate({ where: { tenantId: uid }, _sum: { totalAmountDue: true } }),
     prisma.transaction.aggregate({ where: { tenantId: uid }, _sum: { amount: true } }),
   ])
   const dbTotals = {
-    monthlyPlanInvestment: Number(dbTotalsRaw[0]._sum.investment ?? 0),
+    monthlyPlanInvestment: Number(dbTotalsRaw[0]._sum.stocks ?? 0) + Number(dbTotalsRaw[0]._sum.fd ?? 0),
     latestBillsTotalDue: Number(dbTotalsRaw[1]._sum.totalAmountDue ?? 0),
     txAmount: Number(dbTotalsRaw[2]._sum.amount ?? 0),
   }

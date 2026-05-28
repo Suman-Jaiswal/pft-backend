@@ -8,13 +8,14 @@ export class UpdatePftSettingsDto {
   currency?: string
 
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultSalary?: number
-  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultOtherIncome?: number
+  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultOtherSources?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultRent?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultCook?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultLoanRepayment?: number
-  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultSip?: number
-  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultInvestment?: number
-  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultLiquidSaved?: number
+  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultSipMf?: number
+  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultStocks?: number
+  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultFd?: number
+  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultSavings?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultBills?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultBasicExpenses?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultOtherExpenses?: number

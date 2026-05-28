@@ -14,14 +14,15 @@ export class UpsertMonthlyPlanDto {
 
   @ApiPropertyOptional() @IsOptional() @IsNumber() rent?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() cook?: number
-  @ApiPropertyOptional() @IsOptional() @IsNumber() sip?: number
+  @ApiPropertyOptional() @IsOptional() @IsNumber() sipMf?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() bills?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() basicCcSpent?: number
-  @ApiPropertyOptional() @IsOptional() @IsNumber() investment?: number
-  @ApiPropertyOptional() @IsOptional() @IsNumber() liquidSaved?: number
+  @ApiPropertyOptional() @IsOptional() @IsNumber() stocks?: number
+  @ApiPropertyOptional() @IsOptional() @IsNumber() fd?: number
+  @ApiPropertyOptional() @IsOptional() @IsNumber() savings?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() otherExpenses?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() salary?: number
-  @ApiPropertyOptional() @IsOptional() @IsNumber() otherIncome?: number
+  @ApiPropertyOptional() @IsOptional() @IsNumber() otherSources?: number
   @ApiPropertyOptional() @IsOptional() @IsString() remarks?: string
   @ApiPropertyOptional() @IsOptional() @IsArray() loanPayments?: unknown[]
   @ApiPropertyOptional() @IsOptional() @IsArray() customExpenses?: unknown[]
