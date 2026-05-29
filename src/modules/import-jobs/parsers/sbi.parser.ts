@@ -41,7 +41,7 @@ export class SbiParser {
       merchant: this.normalizeMerchant(merchant),
       channel: this.detectChannel(source),
       referenceNo: referenceNo || undefined,
-      bankKey: 'SBI_5965',
+      bankKey: 'SBI_XX5965',
       emailId: message.id,
       importedAt: new Date().toISOString(),
     }

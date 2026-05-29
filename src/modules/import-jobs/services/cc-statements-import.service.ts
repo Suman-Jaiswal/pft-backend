@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { appConfig } from '@/config/app.config'
 import { google, gmail_v1 } from 'googleapis'
@@ -86,6 +87,28 @@ export function buildStatementPdfPasswordCandidates(
     out.push(value)
   }
   return out
+}
+
+export function deriveStatementMonthFromDueDate(dueIsoDate: string): string {
+  const [yearRaw, monthRaw] = dueIsoDate.split('-')
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    throw new Error(`Invalid due ISO date: ${dueIsoDate}`)
+  }
+  const derivedYear = month === 1 ? year - 1 : year
+  const derivedMonth = month === 1 ? 12 : month - 1
+  return `${derivedYear}-${String(derivedMonth).padStart(2, '0')}`
+}
+
+export function normalizeStatementAmounts(minimumAmountDue: number, totalAmountDue: number): {
+  minimumAmountDue: number
+  totalAmountDue: number
+} {
+  if (minimumAmountDue <= totalAmountDue) {
+    return { minimumAmountDue, totalAmountDue }
+  }
+  return { minimumAmountDue: totalAmountDue, totalAmountDue: minimumAmountDue }
 }
 
 @Injectable()
@@ -221,30 +244,43 @@ export class CcStatementsImportService {
           cardId: card.id,
           statementMonth: parsed.statementMonth,
         },
-        select: { id: true },
+        select: { id: true, statementMonth: true },
       })
+      const dueMonth = this.formatMonth(new Date(parsed.dueDate))
+      const existingLegacyShifted = existing
+        ? null
+        : await this.prisma.statement.findFirst({
+            where: {
+              tenantId,
+              cardId: card.id,
+              statementMonth: dueMonth,
+            },
+            select: { id: true, statementMonth: true },
+          })
+      const targetRow = existing ?? existingLegacyShifted
 
       if (dryRun) {
         this.logger.log(
-          `[SOURCE_DRYRUN] card=${source.cardKey} action=${existing ? 'update' : 'insert'} statementMonth=${parsed.statementMonth}`,
+          `[SOURCE_DRYRUN] card=${source.cardKey} action=${targetRow ? 'update' : 'insert'} statementMonth=${parsed.statementMonth}`,
         )
         return {
           cardKey: source.cardKey,
           labelName: source.labelName,
           flow: source.flow,
-          inserted: existing ? 0 : 1,
-          updated: existing ? 1 : 0,
+          inserted: targetRow ? 0 : 1,
+          updated: targetRow ? 1 : 0,
           skipped: 0,
           failed: 0,
-          summary: existing ? 'Dry-run update candidate' : 'Dry-run insert candidate',
+          summary: targetRow ? 'Dry-run update candidate' : 'Dry-run insert candidate',
           statementMonth: parsed.statementMonth,
         }
       }
 
-      if (existing) {
+      if (targetRow) {
         const row = await this.prisma.statement.update({
-          where: { id: existing.id },
+          where: { id: targetRow.id },
           data: {
+            statementMonth: parsed.statementMonth,
             dueDate: new Date(parsed.dueDate),
             minimumAmountDue: parsed.minimumAmountDue,
             totalAmountDue: parsed.totalAmountDue,
@@ -255,7 +291,7 @@ export class CcStatementsImportService {
           select: { id: true },
         })
         this.logger.log(
-          `[SOURCE_UPDATE] card=${source.cardKey} statementId=${row.id} statementMonth=${parsed.statementMonth}`,
+          `[SOURCE_UPDATE] card=${source.cardKey} statementId=${row.id} fromMonth=${targetRow.statementMonth} toMonth=${parsed.statementMonth}`,
         )
         return {
           cardKey: source.cardKey,
@@ -271,37 +307,76 @@ export class CcStatementsImportService {
         }
       }
 
-      const row = await this.prisma.statement.create({
-        data: {
-          tenantId,
-          cardId: card.id,
-          cardKey: card.cardKey,
-          statementMonth: parsed.statementMonth,
-          dueDate: new Date(parsed.dueDate),
-          minimumAmountDue: parsed.minimumAmountDue,
-          totalAmountDue: parsed.totalAmountDue,
-          status: 'DUE',
-          statementSyncMonth: syncMonth,
-          createdBy: 'import-job',
-          updatedBy: 'import-job',
-        },
-        select: { id: true },
-      })
+      try {
+        const row = await this.prisma.statement.create({
+          data: {
+            tenantId,
+            cardId: card.id,
+            cardKey: card.cardKey,
+            statementMonth: parsed.statementMonth,
+            dueDate: new Date(parsed.dueDate),
+            minimumAmountDue: parsed.minimumAmountDue,
+            totalAmountDue: parsed.totalAmountDue,
+            status: 'DUE',
+            statementSyncMonth: syncMonth,
+            createdBy: 'import-job',
+            updatedBy: 'import-job',
+          },
+          select: { id: true },
+        })
 
-      this.logger.log(
-        `[SOURCE_INSERT] card=${source.cardKey} statementId=${row.id} statementMonth=${parsed.statementMonth}`,
-      )
-      return {
-        cardKey: source.cardKey,
-        labelName: source.labelName,
-        flow: source.flow,
-        inserted: 1,
-        updated: 0,
-        skipped: 0,
-        failed: 0,
-        summary: 'Inserted new statement',
-        statementId: row.id,
-        statementMonth: parsed.statementMonth,
+        this.logger.log(
+          `[SOURCE_INSERT] card=${source.cardKey} statementId=${row.id} statementMonth=${parsed.statementMonth}`,
+        )
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 1,
+          updated: 0,
+          skipped: 0,
+          failed: 0,
+          summary: 'Inserted new statement',
+          statementId: row.id,
+          statementMonth: parsed.statementMonth,
+        }
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          const existingNow = await this.prisma.statement.findFirst({
+            where: { tenantId, cardId: card.id, statementMonth: parsed.statementMonth },
+            select: { id: true },
+          })
+          if (existingNow) {
+            const row = await this.prisma.statement.update({
+              where: { id: existingNow.id },
+              data: {
+                dueDate: new Date(parsed.dueDate),
+                minimumAmountDue: parsed.minimumAmountDue,
+                totalAmountDue: parsed.totalAmountDue,
+                status: 'DUE',
+                statementSyncMonth: syncMonth,
+                updatedBy: 'import-job',
+              },
+              select: { id: true },
+            })
+            this.logger.log(
+              `[SOURCE_UPSERT_RECOVER] card=${source.cardKey} statementId=${row.id} statementMonth=${parsed.statementMonth}`,
+            )
+            return {
+              cardKey: source.cardKey,
+              labelName: source.labelName,
+              flow: source.flow,
+              inserted: 0,
+              updated: 1,
+              skipped: 0,
+              failed: 0,
+              summary: 'Updated existing statement after unique conflict',
+              statementId: row.id,
+              statementMonth: parsed.statementMonth,
+            }
+          }
+        }
+        throw error
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
@@ -655,11 +730,12 @@ export class CcStatementsImportService {
 
   private toParsedStatement(dueDate: string, minimumAmountDue: number, totalAmountDue: number): ParsedStatement {
     const dueIso = this.toIsoDate(dueDate)
-    const statementMonth = this.formatMonth(new Date(dueIso))
+    const normalized = normalizeStatementAmounts(minimumAmountDue, totalAmountDue)
+    const statementMonth = deriveStatementMonthFromDueDate(dueIso)
     return {
       dueDate: dueIso,
-      minimumAmountDue,
-      totalAmountDue,
+      minimumAmountDue: normalized.minimumAmountDue,
+      totalAmountDue: normalized.totalAmountDue,
       statementMonth,
       statementSyncMonth: statementMonth,
     }

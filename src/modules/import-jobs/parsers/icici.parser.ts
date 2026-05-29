@@ -44,7 +44,7 @@ export class IciciParser {
       merchant: this.normalizeMerchant(merchant),
       channel: this.detectChannel(source),
       referenceNo: referenceNo || undefined,
-      bankKey: `ICICI_${last4}`,
+      bankKey: `ICICI_XX${last4}`,
       emailId: message.id,
       importedAt: new Date().toISOString(),
     }

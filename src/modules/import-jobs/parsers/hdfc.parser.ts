@@ -30,7 +30,7 @@ export class HdfcParser {
       merchant: merchant || 'HDFC card',
       channel: this.detectChannel(source),
       referenceNo: referenceNo || undefined,
-      bankKey: 'HDFC_9335',
+      bankKey: 'HDFC_XX9335',
       emailId: message.id,
       importedAt: new Date().toISOString(),
     }

@@ -33,7 +33,7 @@ const REAUTH_REQUIRED_CODE: ImportErrorCode = 'REAUTH_REQUIRED'
 
 const DEFAULT_BANKS: BankConfig[] = [
   {
-    bankKey: 'SBI_5965',
+    bankKey: 'SBI_XX5965',
     account: 'SBI',
     cardLast4: '5965',
     labelName: appConfig.importLabelSbi,
@@ -41,7 +41,7 @@ const DEFAULT_BANKS: BankConfig[] = [
     fallbackStartDate: '2026-03-01',
   },
   {
-    bankKey: 'HDFC_9335',
+    bankKey: 'HDFC_XX9335',
     account: 'HDFC',
     cardLast4: '9335',
     labelName: appConfig.importLabelHdfc,
@@ -599,12 +599,23 @@ export class CcTxnImportService {
 
   private filterBanks(bankKeys?: string[]): BankConfig[] {
     if (!bankKeys?.length) return DEFAULT_BANKS
-    const wanted = new Set(bankKeys)
-    return DEFAULT_BANKS.filter((b) => wanted.has(b.bankKey))
+    const wanted = new Set(bankKeys.map((key) => this.normalizeBankSelector(key)))
+    return DEFAULT_BANKS.filter((b) => wanted.has(this.normalizeBankSelector(b.bankKey)))
   }
 
   private getBankConfigByKey(bankKey: string): BankConfig | null {
-    return DEFAULT_BANKS.find((bank) => bank.bankKey === bankKey) ?? null
+    const normalized = this.normalizeBankSelector(bankKey)
+    return (
+      DEFAULT_BANKS.find((bank) => this.normalizeBankSelector(bank.bankKey) === normalized) ?? null
+    )
+  }
+
+  private normalizeBankSelector(raw: string): string {
+    const normalized = String(raw ?? '').trim().toUpperCase()
+    const maskedOrPlain = normalized.match(/^([A-Z0-9]+)_(?:XX)?(\d{4})$/)
+    if (!maskedOrPlain) return normalized
+    const [, issuer, last4] = maskedOrPlain
+    return `${issuer}_XX${last4}`
   }
 
   private emptyStats(): BankImportStats {

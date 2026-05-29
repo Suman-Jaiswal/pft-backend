@@ -7,6 +7,11 @@ import { CardEntity, CardStatus } from '@/modules/cards/domain/entities/card.ent
 import { CardKey } from '@/modules/cards/domain/value-objects/card-key.vo'
 import { CreateCardCommand } from '@/modules/cards/application/dto/create-card.command'
 
+function deriveLast4FromCardKey(cardKey: string): string | null {
+  const match = cardKey.match(/_(?:XX)?(\d{4})$/)
+  return match?.[1] ?? null
+}
+
 const schema = z.object({
   tenantId: z.string().min(1),
   actorId: z.string().min(1),
@@ -26,6 +31,7 @@ export class CreateCardUseCase implements UseCase<CreateCardCommand, CardEntity>
     const cmd = schema.parse(input)
     const now = new Date()
     const id = `card_${randomUUID()}`
+    const cardKey = CardKey.create(cmd.cardKey)
     const entity = new CardEntity(
       id,
       cmd.tenantId,
@@ -33,9 +39,9 @@ export class CreateCardUseCase implements UseCase<CreateCardCommand, CardEntity>
       now,
       cmd.actorId,
       cmd.actorId,
-      CardKey.create(cmd.cardKey),
+      cardKey,
       cmd.issuer,
-      cmd.last4 ?? null,
+      cmd.last4 ?? deriveLast4FromCardKey(cardKey.value) ?? null,
       cmd.network ?? null,
       cmd.statementCycleDay ?? null,
       cmd.creditLimit ?? null,

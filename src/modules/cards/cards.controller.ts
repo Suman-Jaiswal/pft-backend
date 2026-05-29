@@ -9,7 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common'
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CardsService } from '@/modules/cards/cards.service'
 import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
 import { RolesGuard } from '@/shared/auth/roles.guard'
@@ -32,12 +32,14 @@ export class CardsController {
 
   @Post()
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Create card [AUTH: JWT]' })
   async create(@Req() req: ReqUser, @Body() dto: CreateCardDto) {
     return ok(await this.cardsService.create(req.user.tenantId, req.user.sub, dto))
   }
 
   @Get()
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'List cards [AUTH: JWT]' })
   async list(@Req() req: ReqUser, @Query() query: ListCardsQueryDto) {
     const page = query.page ?? 1
     const pageSize = query.pageSize ?? 20
@@ -46,18 +48,21 @@ export class CardsController {
 
   @Get(':id')
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Get card [AUTH: JWT]' })
   async get(@Req() req: ReqUser, @Param('id') id: string) {
     return ok(await this.cardsService.get(req.user.tenantId, id))
   }
 
   @Patch(':id')
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Update card [AUTH: JWT]' })
   async update(@Req() req: ReqUser, @Param('id') id: string, @Body() dto: UpdateCardDto) {
     return ok(await this.cardsService.update(req.user.tenantId, req.user.sub, id, dto))
   }
 
   @Patch(':id/status')
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Update card status [AUTH: JWT]' })
   async updateStatus(
     @Req() req: ReqUser,
     @Param('id') id: string,

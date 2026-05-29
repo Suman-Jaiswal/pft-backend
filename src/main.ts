@@ -89,6 +89,14 @@ async function bootstrap(): Promise<void> {
     .setDescription("Cards, statements, transactions")
     .setVersion(docsVersion)
     .addBearerAuth()
+    .addApiKey(
+      { type: "apiKey", in: "header", name: "X-Job-Token", description: "Import job token" },
+      "job-token",
+    )
+    .addApiKey(
+      { type: "apiKey", in: "header", name: "X-Tenant-Id", description: "Tenant scope for job endpoints" },
+      "tenant-id",
+    )
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup("api/docs", app, document);

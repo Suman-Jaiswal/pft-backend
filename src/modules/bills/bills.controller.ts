@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common'
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
 import { RolesGuard } from '@/shared/auth/roles.guard'
 import { Roles } from '@/shared/auth/roles.decorator'
@@ -19,18 +19,21 @@ export class BillsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'List bills [AUTH: JWT]' })
   async list(@Req() req: ReqUser) {
     return ok(await this.service.list(req.user.tenantId))
   }
 
   @Post()
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Upsert bill [AUTH: JWT]' })
   async upsert(@Req() req: ReqUser, @Body() dto: UpsertBillDto) {
     return ok(await this.service.upsert(req.user.tenantId, req.user.sub, dto))
   }
 
   @Delete(':id')
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Delete bill [AUTH: JWT]' })
   async remove(@Req() req: ReqUser, @Param('id') id: string) {
     await this.service.remove(req.user.tenantId, id)
     return ok(true)

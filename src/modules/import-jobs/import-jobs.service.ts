@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { CcTxnImportService } from '@/modules/import-jobs/services/cc-txn-import.service'
 import { CcStatementsImportService } from '@/modules/import-jobs/services/cc-statements-import.service'
@@ -36,10 +36,12 @@ export class ImportJobsService {
   ) {}
 
   async runCcTxnImport(options: {
+    tenantId: string
     dryRun?: boolean
     bankKeys?: string[]
     owner: string
   }): Promise<ImportRunSummary> {
+    void options.tenantId
     const acquired = await this.lockService.acquire(JOB_KEY, options.owner, LOCK_TTL_MS)
     if (!acquired) {
       const now = new Date().toISOString()
@@ -75,29 +77,35 @@ export class ImportJobsService {
   }
 
   async listCcTxnFailures(options: {
+    tenantId: string
     status?: ImportFailureStatus
     failureType?: ImportFailureType
     bankKeys?: string[]
     page?: number
     pageSize?: number
   }): Promise<ImportFailureListResult> {
+    void options.tenantId
     return this.ccTxnImportService.listFailures(options)
   }
 
   async retryCcTxnFailures(options: {
+    tenantId: string
     ids?: string[]
     bankKeys?: string[]
     limit?: number
     dryRun?: boolean
   }): Promise<ImportFailureRetryResult> {
+    void options.tenantId
     return this.ccTxnImportService.retryFailures(options)
   }
 
   async rebaseCcTxnImportWatermark(options: {
+    tenantId: string
     days?: number
     bankKeys?: string[]
     dryRun?: boolean
   }): Promise<WatermarkRebaseResult> {
+    void options.tenantId
     return this.ccTxnImportService.rebaseWatermark(options)
   }
 
@@ -143,11 +151,11 @@ export class ImportJobsService {
   }
 
   async startCcStatementsImport(options: {
+    tenantId: string
     owner: string
     dryRun?: boolean
     cardKeys?: string[]
   }): Promise<CcStatementsImportStartResult> {
-    const tenantId = await this.resolveImportTenantId()
     const startedAt = new Date()
     const initialPayload: CcStatementsImportStartResult = {
       jobRunId: '',
@@ -179,7 +187,7 @@ export class ImportJobsService {
     void this.executeCcStatementsImportRun({
       runId,
       owner: options.owner,
-      tenantId,
+      tenantId: options.tenantId,
       dryRun: options.dryRun,
       cardKeys: options.cardKeys,
     })
@@ -191,8 +199,7 @@ export class ImportJobsService {
     }
   }
 
-  async getCcStatementsImportStatus(): Promise<CcStatementsImportStatus> {
-    const tenantId = await this.resolveImportTenantId()
+  async getCcStatementsImportStatus(tenantId: string): Promise<CcStatementsImportStatus> {
     const [setting, run] = await Promise.all([
       this.prisma.pftSetting.findUnique({
         where: { tenantId },
@@ -326,16 +333,5 @@ export class ImportJobsService {
     } finally {
       await this.lockService.release(STATEMENTS_JOB_KEY, options.owner)
     }
-  }
-
-  private async resolveImportTenantId(): Promise<string> {
-    const row = await this.prisma.pftSetting.findFirst({
-      select: { tenantId: true },
-      orderBy: { createdAt: 'asc' },
-    })
-    if (!row?.tenantId) {
-      throw new NotFoundException('No tenant configured for import jobs')
-    }
-    return row.tenantId
   }
 }

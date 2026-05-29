@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { AuthService } from '@/modules/auth/auth.service'
 import { GoogleCallbackQueryDto } from '@/modules/auth/dto/google-callback.query.dto'
 import { GoogleStartQueryDto } from '@/modules/auth/dto/google-start.query.dto'
@@ -19,22 +19,26 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @ApiOperation({ summary: 'Login [AUTH: NONE]' })
   async login(@Body() dto: LoginDto) {
     return ok(await this.authService.login(dto.email, dto.password))
   }
 
   @Get('google/start')
+  @ApiOperation({ summary: 'Google OAuth start [AUTH: NONE]' })
   async googleStart(@Query() query: GoogleStartQueryDto) {
     return ok({ url: this.authService.getGoogleAuthUrl(query.state) })
   }
 
   @Get('google/import/start')
+  @ApiOperation({ summary: 'Google import OAuth start [AUTH: NONE]' })
   googleImportStart(@Query() query: GoogleStartQueryDto, @Res() res: Response) {
     const url = this.authService.getGoogleImportAuthUrl(query.state)
     return res.redirect(url)
   }
 
   @Get('google/callback')
+  @ApiOperation({ summary: 'Google OAuth callback [AUTH: NONE]' })
   async googleCallback(@Query() query: GoogleCallbackQueryDto, @Res() res: Response) {
     const out = await this.authService.googleCallback(query.code)
     const redirect = `${appConfig.authSuccessRedirect}?token=${encodeURIComponent(out.accessToken)}`
@@ -42,6 +46,7 @@ export class AuthController {
   }
 
   @Get('google/import/callback')
+  @ApiOperation({ summary: 'Google import OAuth callback [AUTH: NONE]' })
   async googleImportCallback(
     @Query() query: GoogleCallbackQueryDto,
     @Res() res: Response,
@@ -59,6 +64,7 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('me')
+  @ApiOperation({ summary: 'Current user profile [AUTH: JWT]' })
   async me(@Req() req: ReqUser) {
     return ok(req.user)
   }
@@ -66,6 +72,7 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('refresh')
+  @ApiOperation({ summary: 'Refresh JWT [AUTH: JWT]' })
   async refresh(@Req() req: ReqUser) {
     return ok(await this.authService.refresh(req.user))
   }
@@ -73,6 +80,7 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('logout')
+  @ApiOperation({ summary: 'Logout [AUTH: JWT]' })
   async logout() {
     return ok({ loggedOut: true })
   }

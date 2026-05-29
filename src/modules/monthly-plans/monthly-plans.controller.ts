@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common'
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
 import { RolesGuard } from '@/shared/auth/roles.guard'
 import { Roles } from '@/shared/auth/roles.decorator'
@@ -20,18 +20,21 @@ export class MonthlyPlansController {
 
   @Get()
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'List monthly plans [AUTH: JWT]' })
   async list(@Req() req: ReqUser) {
     return ok(await this.service.list(req.user.tenantId))
   }
 
   @Get('current')
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Get current monthly plan [AUTH: JWT]' })
   async current(@Req() req: ReqUser, @Query() query: CurrentMonthlyPlanQueryDto) {
     return ok(await this.service.getCurrent(req.user.tenantId, Number(query.month), Number(query.year)))
   }
 
   @Post()
   @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Upsert monthly plan [AUTH: JWT]' })
   async upsert(@Req() req: ReqUser, @Body() dto: UpsertMonthlyPlanDto) {
     return ok(await this.service.upsert(req.user.tenantId, req.user.sub, dto))
   }

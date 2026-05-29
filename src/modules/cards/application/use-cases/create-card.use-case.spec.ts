@@ -19,4 +19,23 @@ describe('CreateCardUseCase', () => {
     })
     expect(out.cardKey.value).toBe('HDFC_XX9335')
   })
+
+  it('derives last4 from legacy key when not provided', async () => {
+    const repo: ICardRepository = {
+      create: jest.fn(async (x) => x),
+      findById: jest.fn(),
+      findByCardKey: jest.fn(),
+      list: jest.fn(),
+      update: jest.fn(),
+    }
+    const uc = new CreateCardUseCase(repo)
+    const out = await uc.execute({
+      tenantId: 't1',
+      actorId: 'u1',
+      cardKey: 'hdfc_9335',
+      issuer: 'HDFC',
+    })
+    expect(out.cardKey.value).toBe('HDFC_XX9335')
+    expect(out.last4).toBe('9335')
+  })
 })

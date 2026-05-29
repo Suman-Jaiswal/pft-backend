@@ -15,7 +15,7 @@ describe('IciciParser', () => {
     expect(parsed).not.toBeNull()
     expect(parsed?.cardLast4).toBe('5000')
     expect(parsed?.amount).toBe(120)
-    expect(parsed?.bankKey).toBe('ICICI_5000')
+    expect(parsed?.bankKey).toBe('ICICI_XX5000')
     expect(parsed?.referenceNo).toBe('U123')
   })
 
@@ -32,7 +32,7 @@ describe('IciciParser', () => {
     expect(parsed?.cardLast4).toBe('9003')
     expect(parsed?.merchant).toBe('STARBUCKS')
     expect(parsed?.referenceNo).toBe('778899')
-    expect(parsed?.bankKey).toBe('ICICI_9003')
+    expect(parsed?.bankKey).toBe('ICICI_XX9003')
   })
 
   it('extracts transaction amount and ignores available credit limit amount', () => {
