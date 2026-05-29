@@ -39,28 +39,25 @@ export class ImportJobsController {
     return ok(result)
   }
 
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Get('cc-statements-import/status')
   @HttpCode(HttpStatus.OK)
   async getCcStatementsImportStatus(
-    @Req() req: { user: { tenantId: string } },
+    @Headers('x-job-token') token?: string,
   ) {
-    const result = await this.importJobsService.getCcStatementsImportStatus(req.user.tenantId)
+    this.ensureJobToken(token)
+    const result = await this.importJobsService.getCcStatementsImportStatus()
     return ok(result)
   }
 
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Post('cc-statements-import')
   @HttpCode(HttpStatus.OK)
   async startCcStatementsImport(
-    @Req() req: { user: { tenantId: string; sub: string } },
     @Body() dto: RunCcStatementsImportDto,
+    @Headers('x-job-token') token?: string,
   ) {
-    const owner = `jwt:${req.user.sub}:${Date.now()}`
+    this.ensureJobToken(token)
+    const owner = `api:${Date.now()}`
     const result = await this.importJobsService.startCcStatementsImport({
-      tenantId: req.user.tenantId,
       owner,
       dryRun: dto.dryRun,
       cardKeys: dto.cardKeys,
@@ -68,11 +65,13 @@ export class ImportJobsController {
     return ok(result)
   }
 
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Get('cc-statements-import/runs/:id')
   @HttpCode(HttpStatus.OK)
-  async getCcStatementsImportRun(@Param('id') runId: string) {
+  async getCcStatementsImportRun(
+    @Param('id') runId: string,
+    @Headers('x-job-token') token?: string,
+  ) {
+    this.ensureJobToken(token)
     const result = await this.importJobsService.getCcStatementsImportRun(runId)
     if (!result) throw new NotFoundException('Import run not found')
     return ok(result)
