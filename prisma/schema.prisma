@@ -244,6 +244,7 @@ model PftBaseline {
   periodKey String
   version   Int
   source    String
+  baselineAmount Decimal?
   lockedAt  DateTime
   lockedBy  String
   metrics   Json

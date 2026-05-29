@@ -14,10 +14,16 @@ export type PftBaselineRow = {
   periodKey: string
   version: number
   source: string
+  baselineAmount: number | null
   lockedAt: string
   lockedBy: string
   metrics: Record<string, unknown>
   createdAt: string
+}
+
+function toFiniteNumber(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
 }
 
 @Injectable()
@@ -149,6 +155,7 @@ export class SettingsService {
       periodKey: row.periodKey,
       version: row.version,
       source: row.source,
+      baselineAmount: row.baselineAmount == null ? null : Number(row.baselineAmount),
       lockedAt: row.lockedAt.toISOString(),
       lockedBy: row.lockedBy,
       metrics: this.asMetricsRecord(row.metrics),
@@ -161,6 +168,7 @@ export class SettingsService {
     actorId: string,
     payload: { periodKey: string; source: string; lockedBy: string; metrics: Record<string, unknown> },
   ): Promise<PftBaselineRow> {
+    const baselineAmount = this.parseBaselineAmount(payload.metrics.baselineAmount)
     const aggregate = await this.prisma.pftBaseline.aggregate({
       where: { tenantId, periodKey: payload.periodKey },
       _max: { version: true },
@@ -174,6 +182,7 @@ export class SettingsService {
         periodKey: payload.periodKey,
         version: nextVersion,
         source: payload.source,
+        baselineAmount,
         lockedAt: now,
         lockedBy: payload.lockedBy || actorId,
         metrics: payload.metrics as Prisma.InputJsonValue,
@@ -186,6 +195,7 @@ export class SettingsService {
       periodKey: row.periodKey,
       version: row.version,
       source: row.source,
+      baselineAmount: row.baselineAmount == null ? null : Number(row.baselineAmount),
       lockedAt: row.lockedAt.toISOString(),
       lockedBy: row.lockedBy,
       metrics: this.asMetricsRecord(row.metrics),
@@ -211,6 +221,7 @@ export class SettingsService {
       periodKey: selected.periodKey,
       version: selected.version,
       source: selected.source,
+      baselineAmount: selected.baselineAmount == null ? null : Number(selected.baselineAmount),
       lockedAt: selected.lockedAt.toISOString(),
       lockedBy: selected.lockedBy,
       metrics: this.asMetricsRecord(selected.metrics),
@@ -221,5 +232,11 @@ export class SettingsService {
   private asMetricsRecord(value: unknown): Record<string, unknown> {
     if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
     return {}
+  }
+
+  private parseBaselineAmount(value: unknown): number | null {
+    if (value == null || value === '') return null
+    const numeric = toFiniteNumber(value)
+    return numeric > 0 ? numeric : 0
   }
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "PftBaseline"
+ADD COLUMN IF NOT EXISTS "baselineAmount" DECIMAL;
