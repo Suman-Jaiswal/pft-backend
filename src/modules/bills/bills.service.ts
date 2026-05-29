@@ -1,45 +1,34 @@
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { UpsertBillDto } from '@/modules/bills/dto/upsert-bill.dto'
+import { BILL_REPOSITORY, IBillRepository } from '@/modules/bills/domain/repositories/bill.repository'
 
 @Injectable()
 export class BillsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(BILL_REPOSITORY) private readonly repository: IBillRepository,
+  ) {}
 
   list(tenantId: string) {
-    return this.prisma.bill.findMany({ where: { tenantId }, orderBy: { dueDay: 'asc' } })
+    return this.repository.listByTenant(tenantId)
   }
 
   upsert(tenantId: string, actorId: string, dto: UpsertBillDto) {
     const id = dto.id ?? `bil_${randomUUID()}`
-    return this.prisma.bill.upsert({
-      where: { id },
-      update: {
-        name: dto.name,
-        amount: dto.amount,
-        dueDay: dto.dueDay,
-        frequency: dto.frequency ?? 'MONTHLY',
-        category: dto.category ?? 'GENERAL',
-        status: dto.status ?? 'ACTIVE',
-        updatedBy: actorId,
-      },
-      create: {
-        id,
-        tenantId,
-        name: dto.name,
-        amount: dto.amount,
-        dueDay: dto.dueDay,
-        frequency: dto.frequency ?? 'MONTHLY',
-        category: dto.category ?? 'GENERAL',
-        status: dto.status ?? 'ACTIVE',
-        createdBy: actorId,
-        updatedBy: actorId,
-      },
+    return this.repository.upsert({
+      id,
+      tenantId,
+      actorId,
+      name: dto.name,
+      amount: dto.amount,
+      dueDay: dto.dueDay,
+      frequency: dto.frequency ?? 'MONTHLY',
+      category: dto.category ?? 'GENERAL',
+      status: dto.status ?? 'ACTIVE',
     })
   }
 
   remove(tenantId: string, id: string) {
-    return this.prisma.bill.deleteMany({ where: { tenantId, id } })
+    return this.repository.removeByTenantAndId(tenantId, id)
   }
 }

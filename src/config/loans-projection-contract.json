@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "domain": "loans-projection",
+  "requiredLoanDtoFields": [
+    "name",
+    "principal",
+    "emi",
+    "rate",
+    "startDate",
+    "tenureMonths",
+    "status"
+  ],
+  "sharedCalculatorDependency": "loanPaymentsTotal"
+}

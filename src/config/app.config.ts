@@ -16,6 +16,25 @@ export const appConfig = {
   importLabelSbi: process.env.IMPORT_LABEL_SBI ?? 'CC Transactions/SBI',
   importLabelHdfc: process.env.IMPORT_LABEL_HDFC ?? 'CC Transactions/HDFC',
   importLabelIcici: process.env.IMPORT_LABEL_ICICI ?? 'CC Transactions/ICICI',
+  statementLabelSbi: process.env.STATEMENT_LABEL_SBI ?? 'CC Statements/sbi_xx5965_statements',
+  statementLabelHdfc: process.env.STATEMENT_LABEL_HDFC ?? 'CC Statements/hdfc_xx9335_statements',
+  statementLabelIcici5000:
+    process.env.STATEMENT_LABEL_ICICI_5000 ?? 'CC Statements/icici_xx5000_statements',
+  statementLabelIcici9003:
+    process.env.STATEMENT_LABEL_ICICI_9003 ?? 'CC Statements/icici_xx9003_statements',
+  statementLabelCsb: process.env.STATEMENT_LABEL_CSB ?? 'CC Statements/csb_xx4345_statements',
+  // Legacy flow passed null password by default for non-CSB labels.
+  statementPdfPasswordSbi: process.env.STATEMENT_PDF_PASSWORD_SBI ?? '',
+  statementPdfPasswordHdfc: process.env.STATEMENT_PDF_PASSWORD_HDFC ?? 'SUMA0709',
+  statementPdfPasswordIcici5000: process.env.STATEMENT_PDF_PASSWORD_ICICI_5000 ?? '',
+  statementPdfPasswordIcici9003: process.env.STATEMENT_PDF_PASSWORD_ICICI_9003 ?? '',
+  // Legacy CSB flow derived candidates from label/card suffix; keep a deterministic first fallback.
+  statementPdfPasswordCsb: process.env.STATEMENT_PDF_PASSWORD_CSB ?? 'SUMA0709',
+  statementDefaultPdfPassword: process.env.STATEMENT_DEFAULT_PDF_PASSWORD ?? '',
+  statementGeminiApiKey: process.env.STATEMENT_GEMINI_API_KEY ?? '',
+  statementGeminiModel: process.env.STATEMENT_GEMINI_MODEL ?? 'gemini-2.5-flash',
+  statementGeminiMaxAttempts: Number(process.env.STATEMENT_GEMINI_MAX_ATTEMPTS ?? '4'),
+  statementGeminiBackoffMs: Number(process.env.STATEMENT_GEMINI_BASE_BACKOFF_MS ?? '2000'),
   importDebugParserInput: process.env.IMPORT_DEBUG_PARSER_INPUT === 'true',
   importDebugBodyMaxLen: Number(process.env.IMPORT_DEBUG_BODY_MAX_LEN ?? '1200'),
 }

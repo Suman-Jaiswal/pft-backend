@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "domain": "statements",
+  "requiredDtoFields": [
+    "cardId",
+    "cardKey",
+    "statementMonth",
+    "dueDate",
+    "minimumAmountDue",
+    "totalAmountDue",
+    "status",
+    "statementSyncMonth"
+  ],
+  "statementMonthRegex": "^\\\\d{4}-\\\\d{2}$"
+}

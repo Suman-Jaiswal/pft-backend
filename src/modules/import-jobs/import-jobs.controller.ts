@@ -9,12 +9,15 @@ import {
   HttpStatus,
   Post,
   Query,
+  Param,
   UnauthorizedException,
+  NotFoundException,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { ok } from '@/shared/presentation/api-response'
 import { ImportJobsService } from '@/modules/import-jobs/import-jobs.service'
 import { RunCcTxnImportDto } from '@/modules/import-jobs/dto/run-cc-txn-import.dto'
+import { RunCcStatementsImportDto } from '@/modules/import-jobs/dto/run-cc-statements-import.dto'
 import { ListCcTxnFailuresDto } from '@/modules/import-jobs/dto/list-cc-txn-failures.dto'
 import { RetryCcTxnFailuresDto } from '@/modules/import-jobs/dto/retry-cc-txn-failures.dto'
 import { RebaseWatermarkDto } from '@/modules/import-jobs/dto/rebase-watermark.dto'
@@ -33,6 +36,45 @@ export class ImportJobsController {
     @Req() req: { user: { tenantId: string } },
   ) {
     const result = await this.importJobsService.getCcTxnImportStatus(req.user.tenantId)
+    return ok(result)
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('cc-statements-import/status')
+  @HttpCode(HttpStatus.OK)
+  async getCcStatementsImportStatus(
+    @Req() req: { user: { tenantId: string } },
+  ) {
+    const result = await this.importJobsService.getCcStatementsImportStatus(req.user.tenantId)
+    return ok(result)
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('cc-statements-import')
+  @HttpCode(HttpStatus.OK)
+  async startCcStatementsImport(
+    @Req() req: { user: { tenantId: string; sub: string } },
+    @Body() dto: RunCcStatementsImportDto,
+  ) {
+    const owner = `jwt:${req.user.sub}:${Date.now()}`
+    const result = await this.importJobsService.startCcStatementsImport({
+      tenantId: req.user.tenantId,
+      owner,
+      dryRun: dto.dryRun,
+      cardKeys: dto.cardKeys,
+    })
+    return ok(result)
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('cc-statements-import/runs/:id')
+  @HttpCode(HttpStatus.OK)
+  async getCcStatementsImportRun(@Param('id') runId: string) {
+    const result = await this.importJobsService.getCcStatementsImportRun(runId)
+    if (!result) throw new NotFoundException('Import run not found')
     return ok(result)
   }
 

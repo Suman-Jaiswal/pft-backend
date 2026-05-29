@@ -1,15 +1,16 @@
-import { Injectable } from '@nestjs/common'
-import { randomUUID } from 'crypto'
+import { Inject, Injectable } from '@nestjs/common'
 import { Role } from '@/shared/auth/role.enum'
 import { UserEntity } from '@/modules/users/domain/user.entity'
-import { PrismaService } from '@/infrastructure/prisma/prisma.service'
+import { IUserRepository, USER_REPOSITORY } from '@/modules/users/domain/repositories/user.repository'
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(USER_REPOSITORY) private readonly repository: IUserRepository,
+  ) {}
 
   async findByEmail(email: string): Promise<UserEntity | null> {
-    const row = await this.prisma.user.findUnique({ where: { email } })
+    const row = await this.repository.findByEmail(email)
     if (!row) return null
     return {
       id: row.id,
@@ -23,9 +24,7 @@ export class UsersService {
   async findOrCreateGoogleUser(email: string, googleSub: string): Promise<UserEntity> {
     const normalizedEmail = email.toLowerCase()
     const normalizedGoogleSub = googleSub.trim()
-    const migrationTenantId = process.env.MIGRATION_FIRESTORE_UID?.trim()
-    const migrationOwnerEmail = process.env.MIGRATION_OWNER_EMAIL?.trim().toLowerCase()
-    const existingBySub = await this.prisma.user.findUnique({ where: { googleSub: normalizedGoogleSub } })
+    const existingBySub = await this.repository.findByGoogleSub(normalizedGoogleSub)
     if (existingBySub) {
       return {
         id: existingBySub.id,
@@ -36,13 +35,10 @@ export class UsersService {
       }
     }
 
-    const existingByEmail = await this.prisma.user.findUnique({ where: { email: normalizedEmail } })
+    const existingByEmail = await this.repository.findByEmail(normalizedEmail)
     // Existing users keep their current tenant mapping; attach googleSub for future stable lookups.
     if (existingByEmail) {
-      const linked = await this.prisma.user.update({
-        where: { id: existingByEmail.id },
-        data: { googleSub: normalizedGoogleSub },
-      })
+      const linked = await this.repository.updateGoogleSub(existingByEmail.id, normalizedGoogleSub)
       return {
         id: linked.id,
         tenantId: linked.tenantId,
@@ -53,39 +49,10 @@ export class UsersService {
     }
 
     // New users: tenant is Google `sub` for stable per-account dataset mapping.
-    // Optional override: migrated owner email maps legacy tenant records to this Google `sub`.
-    const isMigratedOwner = Boolean(
-      migrationTenantId &&
-        migrationOwnerEmail &&
-        normalizedEmail === migrationOwnerEmail,
-    )
-    const row = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-        data: {
-          id: `usr_${randomUUID()}`,
-          tenantId: normalizedGoogleSub,
-          googleSub: normalizedGoogleSub,
-          email: normalizedEmail,
-          passwordHash: 'oauth-google',
-          role: Role.USER,
-        },
-      })
-
-      // One-time transfer: migrated owner rebinds old migrated tenant to Google `sub`.
-      if (isMigratedOwner) {
-        const fromTenant = migrationTenantId!
-        const toTenant = normalizedGoogleSub
-        await Promise.all([
-          tx.card.updateMany({ where: { tenantId: fromTenant }, data: { tenantId: toTenant } }),
-          tx.statement.updateMany({ where: { tenantId: fromTenant }, data: { tenantId: toTenant } }),
-          tx.transaction.updateMany({ where: { tenantId: fromTenant }, data: { tenantId: toTenant } }),
-          tx.monthlyPlan.updateMany({ where: { tenantId: fromTenant }, data: { tenantId: toTenant } }),
-          tx.bill.updateMany({ where: { tenantId: fromTenant }, data: { tenantId: toTenant } }),
-          tx.loan.updateMany({ where: { tenantId: fromTenant }, data: { tenantId: toTenant } }),
-          tx.pftSetting.updateMany({ where: { tenantId: fromTenant }, data: { tenantId: toTenant } }),
-        ])
-      }
-      return created
+    const row = await this.repository.createGoogleUser({
+      normalizedEmail,
+      normalizedGoogleSub,
+      role: Role.USER,
     })
     return {
       id: row.id,

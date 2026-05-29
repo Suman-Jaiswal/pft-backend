@@ -1,1 +1,813 @@
-// TODO: Implement this service
+import { Injectable, Logger } from '@nestjs/common'
+import { PrismaService } from '@/infrastructure/prisma/prisma.service'
+import { appConfig } from '@/config/app.config'
+import { google, gmail_v1 } from 'googleapis'
+import { ImportErrorCode, StatementImportResult, StatementImportRunSummary, StatementImportSourceConfig } from '@/modules/import-jobs/types/import-contracts'
+
+type ParsedStatement = {
+  dueDate: string
+  minimumAmountDue: number
+  totalAmountDue: number
+  statementMonth: string
+  statementSyncMonth: string
+}
+
+type ParsedStatementCandidate = {
+  dueDate: string | null
+  minimumAmountDue: number | null
+  totalAmountDue: number | null
+  strategy: string
+}
+
+type StatementSource = StatementImportSourceConfig & {
+  pdfPassword?: string
+}
+
+const REAUTH_REQUIRED_CODE: ImportErrorCode = 'REAUTH_REQUIRED'
+
+const STATEMENT_SOURCES: StatementSource[] = [
+  {
+    cardKey: 'SBI_XX5965',
+    labelName: appConfig.statementLabelSbi,
+    flow: 'direct',
+    pdfPassword: appConfig.statementPdfPasswordSbi || undefined,
+  },
+  {
+    cardKey: 'HDFC_XX9335',
+    labelName: appConfig.statementLabelHdfc,
+    flow: 'cloudPdf',
+    pdfPassword: appConfig.statementPdfPasswordHdfc || undefined,
+  },
+  {
+    cardKey: 'ICICI_XX5000',
+    labelName: appConfig.statementLabelIcici5000,
+    flow: 'direct',
+    pdfPassword: appConfig.statementPdfPasswordIcici5000 || undefined,
+  },
+  {
+    cardKey: 'ICICI_XX9003',
+    labelName: appConfig.statementLabelIcici9003,
+    flow: 'direct',
+    pdfPassword: appConfig.statementPdfPasswordIcici9003 || undefined,
+  },
+  {
+    cardKey: 'CSB_XX4345',
+    labelName: appConfig.statementLabelCsb,
+    flow: 'cloudPdf',
+    pdfPassword: appConfig.statementPdfPasswordCsb || undefined,
+  },
+]
+
+export function buildStatementPdfPasswordCandidates(
+  labelName: string,
+  subject: string,
+  explicitPassword?: string,
+): string[] {
+  void subject
+  const candidates: string[] = []
+  if (explicitPassword) candidates.push(explicitPassword)
+  const labelLower = (labelName || '').toLowerCase()
+  if (labelLower.includes('csb')) {
+    const allDigits = labelName.replace(/\D/g, '')
+    const last4 = allDigits.length >= 4 ? allDigits.slice(-4) : allDigits
+    if (last4) {
+      candidates.push(`S${last4.slice(0, 3)}9`)
+      candidates.push(last4)
+      candidates.push(`S${last4}`)
+      candidates.push(`${last4}9`)
+    }
+  }
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of candidates) {
+    const value = item?.trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    out.push(value)
+  }
+  return out
+}
+
+@Injectable()
+export class CcStatementsImportService {
+  private readonly logger = new Logger(CcStatementsImportService.name)
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async runImport(options: {
+    tenantId: string
+    dryRun?: boolean
+    cardKeys?: string[]
+  }): Promise<StatementImportRunSummary> {
+    const startedAt = new Date()
+    const dryRun = Boolean(options.dryRun)
+    const runMonth = this.formatMonth(new Date())
+    const selected = this.filterSources(options.cardKeys)
+    this.logger.log(
+      `[SYNC_START] tenant=${options.tenantId} dryRun=${dryRun} runMonth=${runMonth} selectedCards=${selected
+        .map((s) => s.cardKey)
+        .join(',')}`,
+    )
+
+    const perCard = await Promise.all(selected.map((src) => this.importForSource(src, options.tenantId, dryRun)))
+
+    const aggregate = perCard.reduce(
+      (acc, item) => ({
+        inserted: acc.inserted + item.inserted,
+        updated: acc.updated + item.updated,
+        skipped: acc.skipped + item.skipped,
+        failed: acc.failed + item.failed,
+      }),
+      { inserted: 0, updated: 0, skipped: 0, failed: 0 },
+    )
+
+    const reauthRequired = perCard.some((r) => r.errorCode === REAUTH_REQUIRED_CODE)
+    const status: StatementImportRunSummary['status'] =
+      aggregate.failed === 0 ? 'OK' : aggregate.inserted + aggregate.updated > 0 ? 'PARTIAL' : 'FAILURE'
+    const completedAt = new Date()
+    this.logger.log(
+      `[SYNC_DONE] status=${status} inserted=${aggregate.inserted} updated=${aggregate.updated} skipped=${aggregate.skipped} failed=${aggregate.failed} elapsedMs=${completedAt.getTime() - startedAt.getTime()}`,
+    )
+
+    return {
+      job: 'cc_statements_import',
+      status,
+      errorCode: reauthRequired ? REAUTH_REQUIRED_CODE : undefined,
+      reauthRequired,
+      startedAt: startedAt.toISOString(),
+      completedAt: completedAt.toISOString(),
+      elapsedMs: completedAt.getTime() - startedAt.getTime(),
+      runMonth,
+      failureCount: aggregate.failed,
+      aggregate,
+      cards: perCard,
+    }
+  }
+
+  private filterSources(cardKeys?: string[]): StatementSource[] {
+    if (!cardKeys?.length) return STATEMENT_SOURCES
+    const wanted = new Set(cardKeys.map((k) => k.trim().toUpperCase()).filter(Boolean))
+    return STATEMENT_SOURCES.filter((src) => wanted.has(src.cardKey.toUpperCase()))
+  }
+
+  private async importForSource(
+    source: StatementSource,
+    tenantId: string,
+    dryRun: boolean,
+  ): Promise<StatementImportResult> {
+    try {
+      this.logger.log(
+        `[SOURCE_START] card=${source.cardKey} label="${source.labelName}" flow=${source.flow} dryRun=${dryRun}`,
+      )
+      const message = await this.fetchLatestMessageByLabel(source.labelName)
+      if (!message) {
+        this.logger.warn(`[SOURCE_SKIP] card=${source.cardKey} label="${source.labelName}" reason=no_message`)
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 0,
+          skipped: 1,
+          failed: 0,
+          summary: 'No messages under label',
+        }
+      }
+
+      const syncMonth = this.formatMonth(new Date(message.receivedAtMs))
+      this.logger.log(
+        `[SOURCE_MESSAGE] card=${source.cardKey} messageId=${message.id} receivedAt=${new Date(message.receivedAtMs).toISOString()} syncMonth=${syncMonth}`,
+      )
+
+      const card = await this.findCardForSource(tenantId, source.cardKey)
+      if (!card) {
+        this.logger.error(`[SOURCE_FAIL] card=${source.cardKey} reason=card_not_found`)
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 0,
+          skipped: 0,
+          failed: 1,
+          summary: `Card not found: ${source.cardKey}`,
+          error: `Card not found: ${source.cardKey}`,
+        }
+      }
+
+      const parsed = source.flow === 'direct'
+        ? this.parseDirectStatement(source.cardKey, message.subject, message.body)
+        : await this.parsePdfStatement(message, source)
+
+      if (!parsed) {
+        this.logger.warn(
+          `[SOURCE_SKIP] card=${source.cardKey} label="${source.labelName}" reason=parse_incomplete`,
+        )
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 0,
+          skipped: 1,
+          failed: 0,
+          summary: 'Parsed statement fields incomplete',
+        }
+      }
+
+      const existing = await this.prisma.statement.findFirst({
+        where: {
+          tenantId,
+          cardId: card.id,
+          statementMonth: parsed.statementMonth,
+        },
+        select: { id: true },
+      })
+
+      if (dryRun) {
+        this.logger.log(
+          `[SOURCE_DRYRUN] card=${source.cardKey} action=${existing ? 'update' : 'insert'} statementMonth=${parsed.statementMonth}`,
+        )
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: existing ? 0 : 1,
+          updated: existing ? 1 : 0,
+          skipped: 0,
+          failed: 0,
+          summary: existing ? 'Dry-run update candidate' : 'Dry-run insert candidate',
+          statementMonth: parsed.statementMonth,
+        }
+      }
+
+      if (existing) {
+        const row = await this.prisma.statement.update({
+          where: { id: existing.id },
+          data: {
+            dueDate: new Date(parsed.dueDate),
+            minimumAmountDue: parsed.minimumAmountDue,
+            totalAmountDue: parsed.totalAmountDue,
+            status: 'DUE',
+            statementSyncMonth: syncMonth,
+            updatedBy: 'import-job',
+          },
+          select: { id: true },
+        })
+        this.logger.log(
+          `[SOURCE_UPDATE] card=${source.cardKey} statementId=${row.id} statementMonth=${parsed.statementMonth}`,
+        )
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 1,
+          skipped: 0,
+          failed: 0,
+          summary: 'Updated existing statement',
+          statementId: row.id,
+          statementMonth: parsed.statementMonth,
+        }
+      }
+
+      const row = await this.prisma.statement.create({
+        data: {
+          tenantId,
+          cardId: card.id,
+          cardKey: card.cardKey,
+          statementMonth: parsed.statementMonth,
+          dueDate: new Date(parsed.dueDate),
+          minimumAmountDue: parsed.minimumAmountDue,
+          totalAmountDue: parsed.totalAmountDue,
+          status: 'DUE',
+          statementSyncMonth: syncMonth,
+          createdBy: 'import-job',
+          updatedBy: 'import-job',
+        },
+        select: { id: true },
+      })
+
+      this.logger.log(
+        `[SOURCE_INSERT] card=${source.cardKey} statementId=${row.id} statementMonth=${parsed.statementMonth}`,
+      )
+      return {
+        cardKey: source.cardKey,
+        labelName: source.labelName,
+        flow: source.flow,
+        inserted: 1,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        summary: 'Inserted new statement',
+        statementId: row.id,
+        statementMonth: parsed.statementMonth,
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      const code = msg.toLowerCase().includes('reauth_required') ? REAUTH_REQUIRED_CODE : undefined
+      this.logger.error(`Statement import failed for ${source.cardKey}: ${msg}`)
+      return {
+        cardKey: source.cardKey,
+        labelName: source.labelName,
+        flow: source.flow,
+        inserted: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 1,
+        summary: `Failed: ${msg}`,
+        errorCode: code,
+        error: msg,
+      }
+    }
+  }
+
+  private async fetchLatestMessageByLabel(labelName: string): Promise<{
+    id: string
+    subject: string
+    body: string
+    receivedAtMs: number
+    payload: gmail_v1.Schema$MessagePart | undefined
+  } | null> {
+    const gmail = await this.getGmailClient()
+    const query = `label:"${labelName}"`
+    this.logger.log(`[GMAIL_LIST] label="${labelName}" query=${query}`)
+    const list = await gmail.users.messages.list({
+      userId: appConfig.importGmailUser || 'me',
+      q: query,
+      maxResults: 10,
+    })
+    const ids = (list.data.messages ?? []).map((m) => m.id).filter((id): id is string => Boolean(id))
+    this.logger.log(`[GMAIL_LIST_RESULT] label="${labelName}" messageCount=${ids.length}`)
+    if (!ids.length) return null
+
+    const messages = await Promise.all(
+      ids.map((id) =>
+        gmail.users.messages.get({
+          userId: appConfig.importGmailUser || 'me',
+          id,
+          format: 'full',
+        }),
+      ),
+    )
+    const sorted = messages
+      .map((m) => m.data)
+      .filter((m) => Boolean(m.id))
+      .sort((a, b) => Number(b.internalDate ?? '0') - Number(a.internalDate ?? '0'))
+    const latest = sorted[0]
+    if (!latest?.id) return null
+    return {
+      id: latest.id,
+      subject: this.readHeader(latest.payload?.headers, 'subject'),
+      body: this.extractBody(latest.payload),
+      receivedAtMs: Number(latest.internalDate ?? '0'),
+      payload: latest.payload,
+    }
+  }
+
+  private parseDirectStatement(cardKey: string, subject: string, body: string): ParsedStatement | null {
+    const candidate = this.extractDirectCandidate(cardKey, body, subject)
+    const missing = this.getMissingFields(candidate)
+    if (missing.length) {
+      this.logger.warn(
+        `[DIRECT_PARSE_MISS] card=${cardKey} strategy=${candidate.strategy} missing=${missing.join(',')} subject="${this.compact(subject)}" bodySnippet="${this.compact(body)}"`,
+      )
+      return null
+    }
+    return this.toParsedStatement(
+      candidate.dueDate as string,
+      candidate.minimumAmountDue as number,
+      candidate.totalAmountDue as number,
+    )
+  }
+
+  private async parsePdfStatement(
+    message: { id: string; subject: string; payload: gmail_v1.Schema$MessagePart | undefined },
+    source: StatementSource,
+  ): Promise<ParsedStatement | null> {
+    this.logger.log(`[PDF_FLOW_START] card=${source.cardKey} label="${source.labelName}"`)
+    const attachment = this.findFirstPdfAttachment(message.payload)
+    if (!attachment?.attachmentId) {
+      this.logger.warn(`[PDF_FLOW_SKIP] card=${source.cardKey} reason=no_pdf_attachment`)
+      return null
+    }
+
+    const gmail = await this.getGmailClient()
+    const data = await gmail.users.messages.attachments.get({
+      userId: appConfig.importGmailUser || 'me',
+      messageId: message.id,
+      id: attachment.attachmentId,
+    })
+    const attachmentB64 = data.data.data
+    if (!attachmentB64) {
+      this.logger.warn(`[PDF_FLOW_SKIP] card=${source.cardKey} reason=empty_attachment_payload`)
+      return null
+    }
+    const pdfBytes = this.decodeBase64UrlToBuffer(attachmentB64)
+    const decrypt = await this.decryptAndExtractPdfText(
+      pdfBytes,
+      source.labelName,
+      message.subject,
+      source.pdfPassword,
+    )
+    this.logger.log(
+      `[PDF_DECRYPT_OK] card=${source.cardKey} decryptedSize=${decrypt.decryptedSize} passwordUsed=${decrypt.passwordUsedMasked ?? 'none'}`,
+    )
+
+    const parsed = await this.parsePdfTextWithGemini(decrypt.text, source.labelName, message.subject)
+    if (parsed) {
+      this.logger.log(`[PDF_GEMINI_PARSE_OK] card=${source.cardKey}`)
+      return parsed
+    }
+    this.logger.warn(`[PDF_GEMINI_PARSE_MISS] card=${source.cardKey} fallback=regex`)
+    const fallback = this.parseGenericStatement(decrypt.text, message.subject)
+    if (!fallback) {
+      const candidate = this.extractGenericCandidate(decrypt.text, message.subject)
+      this.logger.warn(
+        `[PDF_REGEX_PARSE_MISS] card=${source.cardKey} missing=${this.getMissingFields(candidate).join(',')} textSnippet="${this.compact(decrypt.text)}"`,
+      )
+    }
+    return fallback
+  }
+
+  private async decryptAndExtractPdfText(
+    pdfBytes: Buffer,
+    labelName: string,
+    subject: string,
+    explicitPassword?: string,
+  ): Promise<{ text: string; passwordUsedMasked: string | null; decryptedSize: number }> {
+    const configured = this.buildPasswordCandidates(
+      labelName,
+      subject,
+      explicitPassword || appConfig.statementDefaultPdfPassword || undefined,
+    )
+    // Always try without a password first for non-encrypted PDFs.
+    const candidates: Array<string | undefined> = [undefined, ...configured]
+    const { getDocument, PasswordResponses } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    let lastError: unknown = null
+    this.logger.log(
+      `[PDF_DECRYPT_START] label="${labelName}" candidates=${candidates.length} blankFirst=true`,
+    )
+
+    for (const password of candidates) {
+      try {
+        this.logger.log(
+          `[PDF_DECRYPT_TRY] label="${labelName}" password=${this.maskPassword(password ?? null) ?? 'none'}`,
+        )
+        const loadingTask = getDocument({ data: new Uint8Array(pdfBytes), password })
+        const pdf = await loadingTask.promise
+        const textParts: string[] = []
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const content = await page.getTextContent()
+          const part = content.items
+            .map((it) => ('str' in it ? String(it.str) : ''))
+            .join(' ')
+          textParts.push(part)
+        }
+        await pdf.destroy()
+        return {
+          text: textParts.join('\n'),
+          passwordUsedMasked: this.maskPassword(password ?? null),
+          decryptedSize: pdfBytes.length,
+        }
+      } catch (error) {
+        lastError = error
+        const msg = error instanceof Error ? error.message : String(error)
+        this.logger.warn(
+          `[PDF_DECRYPT_RETRY] label="${labelName}" password=${this.maskPassword(password ?? null) ?? 'none'} reason=${msg}`,
+        )
+        if (!msg.includes(String(PasswordResponses.NEED_PASSWORD)) && !msg.toLowerCase().includes('password')) {
+          continue
+        }
+      }
+    }
+
+    const lastMessage = lastError instanceof Error ? lastError.message : String(lastError ?? 'unknown')
+    throw new Error(
+      `Failed to decrypt ${labelName}. Tried ${candidates.length} password candidate(s) including blank/default. Last error: ${lastMessage}`,
+    )
+  }
+
+  private async parsePdfTextWithGemini(
+    extractedText: string,
+    labelName: string,
+    subject: string,
+  ): Promise<ParsedStatement | null> {
+    const apiKey = appConfig.statementGeminiApiKey
+    if (!apiKey) return null
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      appConfig.statementGeminiModel,
+    )}:generateContent?key=${encodeURIComponent(apiKey)}`
+
+    const prompt = `Extract credit card bill fields from text and return strict JSON: {"due_date": string|null, "minimum_amount_due": number|null, "total_amount_due": number|null}. Label context: ${labelName}. Subject context: ${subject}. Text: ${extractedText.slice(0, 120000)}`
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+    }
+
+    let bodyText = ''
+    for (let attempt = 1; attempt <= appConfig.statementGeminiMaxAttempts; attempt++) {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      bodyText = await resp.text()
+      if (resp.ok) break
+      const canRetry = [429, 500, 502, 503, 504].includes(resp.status)
+      if (!canRetry || attempt === appConfig.statementGeminiMaxAttempts) {
+        throw new Error(`Gemini HTTP ${resp.status}: ${bodyText}`)
+      }
+      const sleep = appConfig.statementGeminiBackoffMs * Math.pow(2, attempt - 1)
+      await new Promise((resolve) => setTimeout(resolve, sleep))
+    }
+
+    const parsedRoot = JSON.parse(bodyText) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+    }
+    const output = parsedRoot.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!output) return null
+
+    let obj: { due_date?: string | null; minimum_amount_due?: number | null; total_amount_due?: number | null }
+    try {
+      obj = JSON.parse(output)
+    } catch {
+      return null
+    }
+    if (!obj.due_date || obj.minimum_amount_due == null || obj.total_amount_due == null) return null
+    return this.toParsedStatement(String(obj.due_date), Number(obj.minimum_amount_due), Number(obj.total_amount_due))
+  }
+
+  private buildPasswordCandidates(labelName: string, subject: string, explicitPassword?: string): string[] {
+    return buildStatementPdfPasswordCandidates(labelName, subject, explicitPassword)
+  }
+
+  private parseGenericStatement(text: string, subject: string): ParsedStatement | null {
+    const candidate = this.extractGenericCandidate(text, subject)
+    if (this.getMissingFields(candidate).length) return null
+    return this.toParsedStatement(
+      candidate.dueDate as string,
+      candidate.minimumAmountDue as number,
+      candidate.totalAmountDue as number,
+    )
+  }
+
+  private extractDirectCandidate(cardKey: string, body: string, subject: string): ParsedStatementCandidate {
+    if (cardKey.startsWith('SBI_')) {
+      return {
+        strategy: 'sbi_direct',
+        totalAmountDue: this.extractAmountAny(body, [
+          /Total amount due\s*\(?[^\d₹]*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Total Amount Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Amount Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+        ]),
+        minimumAmountDue: this.extractAmountAny(body, [
+          /Minimum amount due\s*\(?[^\d₹]*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Minimum Amount Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Min(?:imum)?\s+Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+        ]),
+        dueDate: this.extractDateAny(`${body}\n${subject}`, [
+          { regex: /Payment due date\s*[:\-]?\s*([0-9]{2}-[A-Za-z]{3}-[0-9]{4})/i, hint: 'DD-MMM-YYYY' },
+          { regex: /Due date\s*[:\-]?\s*([0-9]{2}-[A-Za-z]{3}-[0-9]{4})/i, hint: 'DD-MMM-YYYY' },
+          { regex: /Payment due by\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})/i, hint: 'MMMM D, YYYY' },
+        ]),
+      }
+    }
+
+    if (cardKey.startsWith('ICICI_')) {
+      return {
+        strategy: 'icici_direct',
+        dueDate: this.extractDateAny(`${body}\n${subject}`, [
+          { regex: /Payment due by\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})/i, hint: 'MMMM D, YYYY' },
+          { regex: /Due date\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})/i, hint: 'MMMM D, YYYY' },
+          { regex: /Due Date\s*[:\-]?\s*(\d{4}-\d{2}-\d{2})/i, hint: 'AUTO' },
+        ]),
+        minimumAmountDue: this.extractAmountAny(body, [
+          /Minimum Amount Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Min(?:imum)?\s+Amount\s+Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+        ]),
+        totalAmountDue: this.extractAmountAny(body, [
+          /Total Amount Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Amount Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+        ]),
+      }
+    }
+
+    const generic = this.extractGenericCandidate(body, subject)
+    return { ...generic, strategy: 'generic_direct' }
+  }
+
+  private extractGenericCandidate(text: string, subject: string): ParsedStatementCandidate {
+    return {
+      strategy: 'generic',
+      totalAmountDue: this.extractAmountAny(text, [
+        /(?:total(?:\s+amount)?\s+due)\s*[:\-]?\s*(?:₹|Rs\.?|INR|C)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+        /(?:amount\s+due)\s*[:\-]?\s*(?:₹|Rs\.?|INR|C)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+      ]),
+      minimumAmountDue: this.extractAmountAny(text, [
+        /(?:minimum(?:\s+amount)?\s+due)\s*[:\-]?\s*(?:₹|Rs\.?|INR|C)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+        /(?:min(?:imum)?\s+due)\s*[:\-]?\s*(?:₹|Rs\.?|INR|C)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+      ]),
+      dueDate: this.extractDateAny(`${text}\n${subject}`, [
+        {
+          regex:
+            /(?:payment\s+due(?:\s+date)?|payment\s+due\s+by|due\s+date|due\s+by)\s*[:\-]?\s*([0-9]{2}-[A-Za-z]{3}-[0-9]{4}|[0-9]{1,2}\s+[A-Za-z]{3},\s+[0-9]{4}|[A-Za-z]+\s+\d{1,2},\s+\d{4}|\d{4}-\d{2}-\d{2})/i,
+          hint: 'AUTO',
+        },
+      ]),
+    }
+  }
+
+  private extractAmountAny(text: string, regexes: RegExp[]): number | null {
+    for (const regex of regexes) {
+      const value = this.extractAmount(text, regex)
+      if (value != null) return value
+    }
+    return null
+  }
+
+  private extractDateAny(
+    text: string,
+    patterns: Array<{ regex: RegExp; hint: 'DD-MMM-YYYY' | 'MMMM D, YYYY' | 'AUTO' }>,
+  ): string | null {
+    for (const p of patterns) {
+      const value = this.extractDate(text, p.regex, p.hint)
+      if (value) return value
+    }
+    return null
+  }
+
+  private getMissingFields(candidate: ParsedStatementCandidate): string[] {
+    const missing: string[] = []
+    if (!candidate.dueDate) missing.push('dueDate')
+    if (candidate.minimumAmountDue == null) missing.push('minimumAmountDue')
+    if (candidate.totalAmountDue == null) missing.push('totalAmountDue')
+    return missing
+  }
+
+  private compact(input: string, max = 180): string {
+    const normalized = input.replace(/\s+/g, ' ').trim()
+    if (normalized.length <= max) return normalized
+    return `${normalized.slice(0, max)}...`
+  }
+
+  private toParsedStatement(dueDate: string, minimumAmountDue: number, totalAmountDue: number): ParsedStatement {
+    const dueIso = this.toIsoDate(dueDate)
+    const statementMonth = this.formatMonth(new Date(dueIso))
+    return {
+      dueDate: dueIso,
+      minimumAmountDue,
+      totalAmountDue,
+      statementMonth,
+      statementSyncMonth: statementMonth,
+    }
+  }
+
+  private extractAmount(text: string, regex: RegExp): number | null {
+    const match = text.match(regex)
+    if (!match?.[1]) return null
+    const num = Number(String(match[1]).replace(/,/g, ''))
+    return Number.isFinite(num) ? num : null
+  }
+
+  private async findCardForSource(
+    tenantId: string,
+    sourceCardKey: string,
+  ): Promise<{ id: string; cardKey: string } | null> {
+    const exact = await this.prisma.card.findFirst({
+      where: { tenantId, cardKey: { equals: sourceCardKey, mode: 'insensitive' } },
+      select: { id: true, cardKey: true },
+    })
+    if (exact) return exact
+
+    const sourceDigits = this.last4(sourceCardKey)
+    if (!sourceDigits) return null
+    const cards = await this.prisma.card.findMany({
+      where: { tenantId },
+      select: { id: true, cardKey: true },
+    })
+    return cards.find((c) => this.last4(c.cardKey) === sourceDigits) ?? null
+  }
+
+  private last4(key: string): string | null {
+    const digits = key.replace(/\D/g, '')
+    if (digits.length < 4) return null
+    return digits.slice(-4)
+  }
+
+  private extractDate(text: string, regex: RegExp, formatHint: 'DD-MMM-YYYY' | 'MMMM D, YYYY' | 'AUTO'): string | null {
+    const match = text.match(regex)
+    if (!match?.[1]) return null
+    const raw = match[1].trim()
+    if (formatHint === 'DD-MMM-YYYY') {
+      const [d, mon, y] = raw.split('-')
+      const map: Record<string, string> = {
+        Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+        Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12',
+      }
+      const month = map[mon]
+      if (!month) return null
+      return `${y}-${month}-${d}`
+    }
+    if (formatHint === 'MMMM D, YYYY') {
+      const parsed = new Date(raw)
+      if (Number.isNaN(parsed.getTime())) return null
+      return this.toIsoDate(parsed.toISOString().slice(0, 10))
+    }
+    return this.toIsoDate(raw)
+  }
+
+  private toIsoDate(input: string): string {
+    const d = new Date(input)
+    if (Number.isNaN(d.getTime())) throw new Error(`Invalid due date: ${input}`)
+    return d.toISOString().slice(0, 10)
+  }
+
+  private formatMonth(date: Date): string {
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    return `${y}-${m}`
+  }
+
+  private async getGmailClient() {
+    const clientId = appConfig.googleClientId
+    const clientSecret = appConfig.googleClientSecret
+    if (!clientId || !clientSecret) {
+      throw new Error('reauth_required: google_client_credentials_missing')
+    }
+    const setting = await this.prisma.pftSetting.findFirst({
+      where: { importGmailRefreshToken: { not: null } },
+      orderBy: { importGmailTokenUpdatedAt: 'desc' },
+      select: { importGmailRefreshToken: true },
+    })
+    const refreshToken = setting?.importGmailRefreshToken?.trim()
+    if (!refreshToken) throw new Error('reauth_required: import_gmail_refresh_token_missing')
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, appConfig.importGoogleRedirectUri || undefined)
+    oauth2Client.setCredentials({ refresh_token: refreshToken })
+    return google.gmail({ version: 'v1', auth: oauth2Client })
+  }
+
+  private readHeader(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, key: string): string {
+    return headers?.find((h) => h.name?.toLowerCase() === key.toLowerCase())?.value ?? ''
+  }
+
+  private extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
+    if (!payload) return ''
+    const direct = payload.body?.data ? this.decodeBase64Url(payload.body.data) : ''
+    if (direct) return direct
+    for (const part of payload.parts ?? []) {
+      if (part?.mimeType === 'text/plain' && part.body?.data) return this.decodeBase64Url(part.body.data)
+    }
+    for (const part of payload.parts ?? []) {
+      if (part?.mimeType === 'text/html' && part.body?.data) return this.stripHtml(this.decodeBase64Url(part.body.data))
+    }
+    for (const part of payload.parts ?? []) {
+      const nested = this.extractBody(part)
+      if (nested) return nested
+    }
+    return ''
+  }
+
+  private findFirstPdfAttachment(payload: gmail_v1.Schema$MessagePart | undefined): { attachmentId?: string } | null {
+    if (!payload) return null
+    const stack: gmail_v1.Schema$MessagePart[] = [payload]
+    while (stack.length) {
+      const part = stack.pop()
+      if (!part) continue
+      const filename = part.filename ?? ''
+      const mime = part.mimeType ?? ''
+      if ((mime.includes('pdf') || filename.toLowerCase().endsWith('.pdf')) && part.body?.attachmentId) {
+        return { attachmentId: part.body.attachmentId }
+      }
+      if (part.parts?.length) stack.push(...part.parts)
+    }
+    return null
+  }
+
+  private decodeBase64Url(data: string): string {
+    const normalized = data.replace(/-/g, '+').replace(/_/g, '/')
+    return Buffer.from(normalized, 'base64').toString('utf8')
+  }
+
+  private decodeBase64UrlToBuffer(data: string): Buffer {
+    const normalized = data.replace(/-/g, '+').replace(/_/g, '/')
+    return Buffer.from(normalized, 'base64')
+  }
+
+  private stripHtml(html: string): string {
+    return html
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  private maskPassword(password: string | null): string | null {
+    if (!password) return null
+    if (password.length < 2) return '***'
+    return `${password.slice(0, 1)}***${password.slice(-1)}`
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "jobKey": "cc_statements_import",
+  "startRequest": {
+    "optionalFields": [
+      "dryRun",
+      "cardKeys"
+    ]
+  },
+  "startResponse": {
+    "requiredFields": [
+      "jobRunId",
+      "status",
+      "startedAt"
+    ],
+    "status": "RUNNING"
+  },
+  "runSummary": {
+    "requiredFields": [
+      "job",
+      "status",
+      "startedAt",
+      "completedAt",
+      "elapsedMs",
+      "runMonth",
+      "failureCount",
+      "aggregate",
+      "cards"
+    ],
+    "aggregateFields": [
+      "inserted",
+      "updated",
+      "skipped",
+      "failed"
+    ]
+  }
+}

@@ -1,5 +1,6 @@
 export type ImportJobStatus = 'OK' | 'PARTIAL' | 'FAILURE' | 'SKIPPED_LOCKED'
 export type ImportErrorCode = 'REAUTH_REQUIRED'
+export type StatementImportRunState = ImportJobStatus | 'RUNNING'
 
 export type ImportWindowSource = 'watermark' | 'firestore_max_txn' | 'none'
 export type ImportFailureStatus = 'OPEN' | 'RETRYING' | 'RESOLVED' | 'IGNORED'
@@ -158,4 +159,71 @@ export interface WatermarkRebaseResult {
     watermarkCutoffMs: number
     updated: boolean
   }>
+}
+
+export type StatementParseFlow = 'direct' | 'cloudPdf'
+
+export interface StatementImportSourceConfig {
+  cardKey: string
+  labelName: string
+  flow: StatementParseFlow
+}
+
+export interface StatementImportResult {
+  cardKey: string
+  labelName: string
+  flow: StatementParseFlow
+  inserted: number
+  updated: number
+  skipped: number
+  failed: number
+  summary: string
+  statementId?: string
+  statementMonth?: string
+  errorCode?: ImportErrorCode
+  error?: string
+}
+
+export interface StatementImportRunSummary {
+  job: 'cc_statements_import'
+  status: ImportJobStatus
+  errorCode?: ImportErrorCode
+  reauthRequired?: boolean
+  startedAt: string
+  completedAt: string
+  elapsedMs: number
+  runMonth: string
+  failureCount: number
+  aggregate: {
+    inserted: number
+    updated: number
+    skipped: number
+    failed: number
+  }
+  cards: StatementImportResult[]
+}
+
+export interface CcStatementsImportStartResult {
+  jobRunId: string
+  status: 'RUNNING'
+  startedAt: string
+}
+
+export interface CcStatementsImportRunSnapshot {
+  jobRunId: string
+  status: StatementImportRunState
+  startedAt: string
+  completedAt: string | null
+  payload: StatementImportRunSummary | CcStatementsImportStartResult
+}
+
+export interface CcStatementsImportStatus {
+  reauthRequired: boolean
+  reason: 'credentials_missing' | 'last_run_reauth_required' | 'none'
+  hasCredential: boolean
+  credentialUpdatedAt: string | null
+  credentialEmail: string | null
+  lastRunAt: string | null
+  lastRunStatus: StatementImportRunState | null
+  lastRunErrorCode: ImportErrorCode | null
 }

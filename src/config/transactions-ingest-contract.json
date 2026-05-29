@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "domain": "transactions-ingest",
+  "requiredParsedFields": [
+    "txnDate",
+    "txnTimestamp",
+    "account",
+    "cardLast4",
+    "amount",
+    "merchant",
+    "channel",
+    "bankKey",
+    "emailId",
+    "importedAt"
+  ],
+  "supportedParsers": [
+    "HdfcParser",
+    "SbiParser",
+    "IciciParser"
+  ]
+}

@@ -6,6 +6,7 @@ import { GmailPollService } from '@/modules/import-jobs/services/gmail-poll.serv
 import { ImportAlertService } from '@/modules/import-jobs/services/import-alert.service'
 import { ImportLockService } from '@/modules/import-jobs/services/import-lock.service'
 import { ImportFailureService } from '@/modules/import-jobs/services/import-failure.service'
+import { CcStatementsImportService } from '@/modules/import-jobs/services/cc-statements-import.service'
 import { HdfcParser } from '@/modules/import-jobs/parsers/hdfc.parser'
 import { IciciParser } from '@/modules/import-jobs/parsers/icici.parser'
 import { SbiParser } from '@/modules/import-jobs/parsers/sbi.parser'
@@ -19,6 +20,7 @@ import { SbiParser } from '@/modules/import-jobs/parsers/sbi.parser'
     ImportAlertService,
     ImportLockService,
     ImportFailureService,
+    CcStatementsImportService,
     SbiParser,
     HdfcParser,
     IciciParser,

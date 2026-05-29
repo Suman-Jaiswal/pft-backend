@@ -36,6 +36,9 @@ jobs:
       - name: Generate Prisma client
         run: npm run prisma:generate
 
+      - name: Monthly split contract check
+        run: npm run monthly-split:check
+
       - name: Lint
         run: npm run lint
 
