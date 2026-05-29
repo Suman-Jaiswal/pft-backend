@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { UpsertMonthlyPlanDto } from '@/modules/monthly-plans/dto/upsert-monthly-plan.dto'
+import { calcFreeCash } from '@/modules/monthly-plans/domain/monthly-split.calculator'
 
 @Injectable()
 export class MonthlyPlansService {
@@ -18,34 +19,6 @@ export class MonthlyPlansService {
       const amount = this.toNumber((item as { amount?: unknown }).amount)
       return sum + amount
     }, 0)
-  }
-
-  private calcFreeCash(input: {
-    salary: number
-    otherSources: number
-    rent: number
-    cook: number
-    bills: number
-    sipMf: number
-    savings: number
-    stocks: number
-    fd: number
-    otherExpenses: number
-    loanPaymentsTotal: number
-    customExpensesTotal: number
-  }): number {
-    const income = input.salary + input.otherSources
-    const expenseOut =
-      input.rent +
-      input.cook +
-      input.bills +
-      input.stocks +
-      input.fd +
-      input.otherExpenses +
-      input.loanPaymentsTotal +
-      input.customExpensesTotal
-    const savingsAllocation = input.sipMf + input.savings
-    return income - (expenseOut + savingsAllocation)
   }
 
   list(tenantId: string) {
@@ -70,7 +43,7 @@ export class MonthlyPlansService {
       })
 
       const oldFreeCash = existing
-        ? this.calcFreeCash({
+        ? calcFreeCash({
             salary: this.toNumber(existing.salary),
             otherSources: this.toNumber(existing.otherSources),
             rent: this.toNumber(existing.rent),
@@ -88,7 +61,7 @@ export class MonthlyPlansService {
 
       const mergedLoanPayments = (dto.loanPayments ?? (existing?.loanPayments as unknown[]) ?? []) as unknown[]
       const mergedCustomExpenses = (dto.customExpenses ?? (existing?.customExpenses as unknown[]) ?? []) as unknown[]
-      const newFreeCash = this.calcFreeCash({
+      const newFreeCash = calcFreeCash({
         salary: this.toNumber(dto.salary ?? existing?.salary ?? 0),
         otherSources: this.toNumber(dto.otherSources ?? existing?.otherSources ?? 0),
         rent: this.toNumber(dto.rent ?? existing?.rent ?? 0),

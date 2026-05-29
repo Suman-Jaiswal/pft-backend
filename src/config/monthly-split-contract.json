@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "fields": [
+    { "key": "salary", "label": "Salary", "section": "income", "defaultValue": 128000, "apiKey": "salary", "sheetKey": "salary", "configKey": "default_salary" },
+    { "key": "otherSources", "label": "Other Sources", "section": "income", "defaultValue": 0, "apiKey": "otherSources", "sheetKey": "other_sources", "configKey": "default_other_sources" },
+    { "key": "fd", "label": "FD", "section": "liquidBalance", "defaultValue": 0, "apiKey": "fd", "sheetKey": "fd", "configKey": "default_fd" },
+    { "key": "savings", "label": "Savings", "section": "liquidBalance", "defaultValue": 0, "apiKey": "savings", "sheetKey": "savings", "configKey": "default_savings" },
+    { "key": "rent", "label": "Rent", "section": "fixedCosts", "defaultValue": 18500, "apiKey": "rent", "sheetKey": "rent", "configKey": "default_rent" },
+    { "key": "cook", "label": "Cook / Maid", "section": "fixedCosts", "defaultValue": 4000, "apiKey": "cook", "sheetKey": "cook", "configKey": "default_cook" },
+    { "key": "bills", "label": "Bills (CC / other)", "section": "fixedCosts", "defaultValue": 0, "apiKey": "bills", "sheetKey": "bills", "configKey": "default_bills" },
+    { "key": "loanRepayment", "label": "EMI / Loan Repayment", "section": "fixedCosts", "defaultValue": 0, "apiKey": "defaultLoanRepayment", "sheetKey": "loan_payments", "configKey": "default_loan_repayment" },
+    { "key": "stocks", "label": "Stocks", "section": "investments", "defaultValue": 0, "apiKey": "stocks", "sheetKey": "stocks", "configKey": "default_stocks" },
+    { "key": "sipMf", "label": "SIP (MF)", "section": "investments", "defaultValue": 7000, "apiKey": "sipMf", "sheetKey": "sip_mf", "configKey": "default_sip_mf" },
+    { "key": "otherExpenses", "label": "Other Expenses", "section": "others", "defaultValue": 0, "apiKey": "otherExpenses", "sheetKey": "other_expenses", "configKey": "default_other_expenses" },
+    { "key": "basicExpenses", "label": "Variable Spend Limit (till 17th)", "section": "trackingLimit", "defaultValue": 5000, "apiKey": "defaultBasicExpenses", "sheetKey": "basic_expenses", "configKey": "default_basic_expenses" }
+  ]
+}
