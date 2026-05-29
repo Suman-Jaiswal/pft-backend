@@ -219,7 +219,7 @@ export class CcStatementsImportService {
       }
 
       const parsed = source.flow === 'direct'
-        ? this.parseDirectStatement(source.cardKey, message.subject, message.body)
+        ? await this.parseDirectStatement(source.cardKey, source.labelName, message.subject, message.body)
         : await this.parsePdfStatement(message, source)
 
       if (!parsed) {
@@ -440,20 +440,21 @@ export class CcStatementsImportService {
     }
   }
 
-  private parseDirectStatement(cardKey: string, subject: string, body: string): ParsedStatement | null {
-    const candidate = this.extractDirectCandidate(cardKey, body, subject)
-    const missing = this.getMissingFields(candidate)
-    if (missing.length) {
-      this.logger.warn(
-        `[DIRECT_PARSE_MISS] card=${cardKey} strategy=${candidate.strategy} missing=${missing.join(',')} subject="${this.compact(subject)}" bodySnippet="${this.compact(body)}"`,
-      )
-      return null
+  private async parseDirectStatement(
+    cardKey: string,
+    labelName: string,
+    subject: string,
+    body: string,
+  ): Promise<ParsedStatement | null> {
+    const gemini = await this.parseStatementTextWithGemini(body, labelName, subject)
+    if (gemini) {
+      this.logger.log(`[DIRECT_GEMINI_PARSE_OK] card=${cardKey}`)
+      return gemini
     }
-    return this.toParsedStatement(
-      candidate.dueDate as string,
-      candidate.minimumAmountDue as number,
-      candidate.totalAmountDue as number,
+    this.logger.warn(
+      `[DIRECT_GEMINI_PARSE_MISS] card=${cardKey} subject="${this.compact(subject)}" bodySnippet="${this.compact(body)}"`,
     )
+    return null
   }
 
   private async parsePdfStatement(
@@ -489,20 +490,15 @@ export class CcStatementsImportService {
       `[PDF_DECRYPT_OK] card=${source.cardKey} decryptedSize=${decrypt.decryptedSize} passwordUsed=${decrypt.passwordUsedMasked ?? 'none'}`,
     )
 
-    const parsed = await this.parsePdfTextWithGemini(decrypt.text, source.labelName, message.subject)
+    const parsed = await this.parseStatementTextWithGemini(decrypt.text, source.labelName, message.subject)
     if (parsed) {
       this.logger.log(`[PDF_GEMINI_PARSE_OK] card=${source.cardKey}`)
       return parsed
     }
-    this.logger.warn(`[PDF_GEMINI_PARSE_MISS] card=${source.cardKey} fallback=regex`)
-    const fallback = this.parseGenericStatement(decrypt.text, message.subject)
-    if (!fallback) {
-      const candidate = this.extractGenericCandidate(decrypt.text, message.subject)
-      this.logger.warn(
-        `[PDF_REGEX_PARSE_MISS] card=${source.cardKey} missing=${this.getMissingFields(candidate).join(',')} textSnippet="${this.compact(decrypt.text)}"`,
-      )
-    }
-    return fallback
+    this.logger.warn(
+      `[PDF_GEMINI_PARSE_MISS] card=${source.cardKey} textSnippet="${this.compact(decrypt.text)}"`,
+    )
+    return null
   }
 
   private async decryptAndExtractPdfText(
@@ -564,19 +560,37 @@ export class CcStatementsImportService {
     )
   }
 
-  private async parsePdfTextWithGemini(
+  private async parseStatementTextWithGemini(
     extractedText: string,
     labelName: string,
     subject: string,
   ): Promise<ParsedStatement | null> {
     const apiKey = appConfig.statementGeminiApiKey
-    if (!apiKey) return null
+    if (!apiKey) {
+      throw new Error('gemini_not_configured: statementGeminiApiKey missing')
+    }
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       appConfig.statementGeminiModel,
     )}:generateContent?key=${encodeURIComponent(apiKey)}`
 
-    const prompt = `Extract credit card bill fields from text and return strict JSON: {"due_date": string|null, "minimum_amount_due": number|null, "total_amount_due": number|null}. Label context: ${labelName}. Subject context: ${subject}. Text: ${extractedText.slice(0, 120000)}`
+    const prompt = [
+      'You are an information extraction engine for Indian credit-card statements.',
+      'Return STRICT JSON only with this exact schema (same for all banks):',
+      '{"due_date": string | null, "minimum_amount_due": number | null, "total_amount_due": number | null}',
+      'Rules:',
+      '- Use a single shared schema for ALL cards/banks.',
+      '- due_date must be normalized to YYYY-MM-DD.',
+      '- minimum_amount_due and total_amount_due must be numeric values (no symbols/commas/text).',
+      '- If an amount is marked CR / Credit balance / payable is zero, set total_amount_due=0.',
+      '- If minimum due is absent but total due is zero, set minimum_amount_due=0.',
+      '- Decode HTML entities (e.g. &#8377;) conceptually before extraction.',
+      '- Prefer "Total Amount Due"/"Amount Payable" over unrelated amounts.',
+      '- If uncertain, return null for that field.',
+      `Label context: ${labelName}`,
+      `Subject context: ${subject}`,
+      `Statement text:\n${extractedText.slice(0, 120000)}`,
+    ].join('\n')
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
@@ -603,16 +617,37 @@ export class CcStatementsImportService {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
     }
     const output = parsedRoot.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!output) return null
-
-    let obj: { due_date?: string | null; minimum_amount_due?: number | null; total_amount_due?: number | null }
-    try {
-      obj = JSON.parse(output)
-    } catch {
+    if (!output) {
+      this.logger.warn(`[GEMINI_PARSE_EMPTY] label="${labelName}" subject="${this.compact(subject)}" raw="${this.compact(bodyText)}"`)
       return null
     }
-    if (!obj.due_date || obj.minimum_amount_due == null || obj.total_amount_due == null) return null
-    return this.toParsedStatement(String(obj.due_date), Number(obj.minimum_amount_due), Number(obj.total_amount_due))
+
+    let obj: {
+      due_date?: string | null
+      dueDate?: string | null
+      minimum_amount_due?: number | null
+      minimumAmountDue?: number | null
+      total_amount_due?: number | null
+      totalAmountDue?: number | null
+    }
+    try {
+      obj = JSON.parse(this.extractJsonObject(output))
+    } catch {
+      this.logger.warn(
+        `[GEMINI_PARSE_JSON_FAIL] label="${labelName}" subject="${this.compact(subject)}" output="${this.compact(output)}"`,
+      )
+      return null
+    }
+    const dueDate = obj.due_date ?? obj.dueDate ?? null
+    const minimum = obj.minimum_amount_due ?? obj.minimumAmountDue ?? null
+    const total = obj.total_amount_due ?? obj.totalAmountDue ?? null
+    if (!dueDate || minimum == null || total == null) {
+      this.logger.warn(
+        `[GEMINI_PARSE_INCOMPLETE] label="${labelName}" subject="${this.compact(subject)}" keys="${Object.keys(obj).join(',')}" output="${this.compact(output)}"`,
+      )
+      return null
+    }
+    return this.toParsedStatement(String(dueDate), Number(minimum), Number(total))
   }
 
   private buildPasswordCandidates(labelName: string, subject: string, explicitPassword?: string): string[] {
@@ -620,6 +655,8 @@ export class CcStatementsImportService {
   }
 
   private parseGenericStatement(text: string, subject: string): ParsedStatement | null {
+    const csb = this.parseCsbPdfStatement(text)
+    if (csb) return csb
     const candidate = this.extractGenericCandidate(text, subject)
     if (this.getMissingFields(candidate).length) return null
     return this.toParsedStatement(
@@ -660,12 +697,15 @@ export class CcStatementsImportService {
           { regex: /Due Date\s*[:\-]?\s*(\d{4}-\d{2}-\d{2})/i, hint: 'AUTO' },
         ]),
         minimumAmountDue: this.extractAmountAny(body, [
-          /Minimum Amount Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
-          /Min(?:imum)?\s+Amount\s+Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Minimum Amount Due\s*[:\-]?\s*(?:₹|&#8377;|Rs\.?|INR)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Min(?:imum)?\s+Amount\s+Due\s*[:\-]?\s*(?:₹|&#8377;|Rs\.?|INR)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Minimum amount to be paid\s*[:\-]?\s*(?:₹|&#8377;|Rs\.?|INR)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
         ]),
         totalAmountDue: this.extractAmountAny(body, [
-          /Total Amount Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
-          /Amount Due\s*[:\-]?\s*₹?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Total Amount Due\s*[:\-]?\s*(?:₹|&#8377;|Rs\.?|INR)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Total Amt Due\s*[:\-]?\s*(?:₹|&#8377;|Rs\.?|INR)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Total due\s*[:\-]?\s*(?:₹|&#8377;|Rs\.?|INR)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+          /Amount payable\s*[:\-]?\s*(?:₹|&#8377;|Rs\.?|INR)?\s*([\d,]+\.\d{2}|[\d,]+)/i,
         ]),
       }
     }
@@ -693,6 +733,31 @@ export class CcStatementsImportService {
         },
       ]),
     }
+  }
+
+  private parseCsbPdfStatement(text: string): ParsedStatement | null {
+    const normalized = text.replace(/\s+/g, ' ').trim()
+    if (!normalized) return null
+
+    // CSB PDF commonly contains a compact summary sequence:
+    // "Rs. 12,337.73 01 Jun 2026 Rs. 500.00 17/05/2026 ..."
+    const seq = normalized.match(
+      /Rs\.?\s*([\d,]+\.\d{2}|[\d,]+)\s+([0-9]{1,2}\s+[A-Za-z]{3}\s+[0-9]{4})\s+Rs\.?\s*([\d,]+\.\d{2}|[\d,]+)/i,
+    )
+    if (seq?.[1] && seq?.[2] && seq?.[3]) {
+      return this.toParsedStatement(seq[2], Number(seq[3].replace(/,/g, '')), Number(seq[1].replace(/,/g, '')))
+    }
+
+    const dueDate = this.extractDateAny(normalized, [
+      { regex: /([0-9]{1,2}\s+[A-Za-z]{3}\s+[0-9]{4})/, hint: 'AUTO' },
+      { regex: /([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/, hint: 'AUTO' },
+    ])
+    const totals = [...normalized.matchAll(/Rs\.?\s*([\d,]+\.\d{2}|[\d,]+)/gi)]
+      .map((m) => Number(String(m[1]).replace(/,/g, '')))
+      .filter((n) => Number.isFinite(n) && n > 0)
+    if (!dueDate || totals.length < 2) return null
+    const sorted = [...totals].sort((a, b) => a - b)
+    return this.toParsedStatement(dueDate, sorted[0], sorted[sorted.length - 1])
   }
 
   private extractAmountAny(text: string, regexes: RegExp[]): number | null {
@@ -796,6 +861,16 @@ export class CcStatementsImportService {
   }
 
   private toIsoDate(input: string): string {
+    const trimmed = input.trim()
+    const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+    if (dmy) {
+      const day = Number(dmy[1])
+      const month = Number(dmy[2])
+      const year = Number(dmy[3])
+      if (year >= 1900 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return `${String(year)}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      }
+    }
     const d = new Date(input)
     if (Number.isNaN(d.getTime())) throw new Error(`Invalid due date: ${input}`)
     return d.toISOString().slice(0, 10)
@@ -831,13 +906,13 @@ export class CcStatementsImportService {
 
   private extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
     if (!payload) return ''
-    const direct = payload.body?.data ? this.decodeBase64Url(payload.body.data) : ''
+    const direct = payload.body?.data ? this.decodeHtmlEntities(this.decodeBase64Url(payload.body.data)) : ''
     if (direct) return direct
     for (const part of payload.parts ?? []) {
-      if (part?.mimeType === 'text/plain' && part.body?.data) return this.decodeBase64Url(part.body.data)
+      if (part?.mimeType === 'text/plain' && part.body?.data) return this.decodeHtmlEntities(this.decodeBase64Url(part.body.data))
     }
     for (const part of payload.parts ?? []) {
-      if (part?.mimeType === 'text/html' && part.body?.data) return this.stripHtml(this.decodeBase64Url(part.body.data))
+      if (part?.mimeType === 'text/html' && part.body?.data) return this.stripHtml(this.decodeHtmlEntities(this.decodeBase64Url(part.body.data)))
     }
     for (const part of payload.parts ?? []) {
       const nested = this.extractBody(part)
@@ -885,5 +960,27 @@ export class CcStatementsImportService {
     if (!password) return null
     if (password.length < 2) return '***'
     return `${password.slice(0, 1)}***${password.slice(-1)}`
+  }
+
+  private decodeHtmlEntities(text: string): string {
+    return text
+      .replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(Number(n)))
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+  }
+
+  private extractJsonObject(text: string): string {
+    const raw = text.trim()
+    if (raw.startsWith('{') && raw.endsWith('}')) return raw
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+    if (fenced?.[1]) return fenced[1].trim()
+    const first = raw.indexOf('{')
+    const last = raw.lastIndexOf('}')
+    if (first >= 0 && last > first) return raw.slice(first, last + 1)
+    return raw
   }
 }
