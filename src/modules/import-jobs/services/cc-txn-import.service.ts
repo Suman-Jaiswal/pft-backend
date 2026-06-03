@@ -25,6 +25,7 @@ import {
   ImportWindow,
   PersistableTransaction,
 } from '@/modules/import-jobs/types/import-contracts'
+import { resolveImportErrorCode } from '@/modules/import-jobs/services/import-auth-error.util'
 
 const JOB_KEY = 'cc_txn_import'
 const IMPORT_ACTOR = 'import-job'
@@ -74,7 +75,11 @@ export class CcTxnImportService {
     private readonly iciciParser: IciciParser,
   ) {}
 
-  async runImport(options: { dryRun?: boolean; bankKeys?: string[] } = {}): Promise<ImportRunSummary> {
+  async runImport(options: {
+    tenantId: string
+    dryRun?: boolean
+    bankKeys?: string[]
+  }): Promise<ImportRunSummary> {
     const startedAt = new Date()
     const dryRun = Boolean(options.dryRun)
     const banks = this.filterBanks(options.bankKeys)
@@ -83,11 +88,11 @@ export class CcTxnImportService {
 
     for (const bank of banks) {
       try {
-        const result = await this.runImportForBank(bank, dryRun)
+        const result = await this.runImportForBank(options.tenantId, bank, dryRun)
         bankResults.push(result)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        const errorCode = this.resolveImportErrorCode(error)
+        const errorCode = resolveImportErrorCode(error)
         bankResults.push({
           bankKey: bank.bankKey,
           summary: `${bank.bankKey}: FAILED - ${message}`,
@@ -133,6 +138,7 @@ export class CcTxnImportService {
     await this.prisma.importJobRun.create({
       data: {
         jobKey: JOB_KEY,
+        tenantId: options.tenantId,
         status,
         payload: summary as unknown as Prisma.InputJsonValue,
         startedAt,
@@ -153,10 +159,14 @@ export class CcTxnImportService {
     return summary
   }
 
-  private async runImportForBank(bank: BankConfig, dryRun: boolean): Promise<BankImportResult> {
+  private async runImportForBank(
+    tenantId: string,
+    bank: BankConfig,
+    dryRun: boolean,
+  ): Promise<BankImportResult> {
     const window = await this.resolveWindow(bank)
     const startDate = window.startDate ?? bank.fallbackStartDate
-    const messages = await this.gmailPoll.pollByLabel(bank.labelName, startDate)
+    const messages = await this.gmailPoll.pollByLabel(tenantId, bank.labelName, startDate)
     const filteredMessages =
       window.watermarkCutoffMs == null
         ? messages
@@ -231,6 +241,7 @@ export class CcTxnImportService {
   }
 
   async retryFailures(options: {
+    tenantId: string
     ids?: string[]
     bankKeys?: string[]
     limit?: number
@@ -270,7 +281,7 @@ export class CcTxnImportService {
         continue
       }
 
-      const message = await this.gmailPoll.fetchByMessageId(failure.messageId)
+      const message = await this.gmailPoll.fetchByMessageId(options.tenantId, failure.messageId)
       if (!message) {
         notFoundInGmail++
         breakdown[failure.bankKey].notFoundInGmail++
@@ -644,40 +655,4 @@ export class CcTxnImportService {
     )
   }
 
-  private resolveImportErrorCode(error: unknown): ImportErrorCode | undefined {
-    if (this.isReauthRequiredError(error)) {
-      return REAUTH_REQUIRED_CODE
-    }
-    return undefined
-  }
-
-  private isReauthRequiredError(error: unknown): boolean {
-    if (!error || typeof error !== 'object') return false
-
-    const maybeError = error as {
-      message?: unknown
-      response?: { data?: { error?: unknown; error_description?: unknown } | unknown }
-    }
-
-    const message = String(maybeError.message ?? '').toLowerCase()
-    if (message.includes('invalid_grant')) return true
-    if (message.includes('reauth_required')) return true
-
-    const responseData = maybeError.response?.data
-    if (!responseData) return false
-
-    if (typeof responseData === 'string') {
-      return responseData.toLowerCase().includes('invalid_grant')
-    }
-
-    if (typeof responseData === 'object') {
-      const errorCode = String((responseData as { error?: unknown }).error ?? '').toLowerCase()
-      const errorDescription = String(
-        (responseData as { error_description?: unknown }).error_description ?? '',
-      ).toLowerCase()
-      return errorCode.includes('invalid_grant') || errorDescription.includes('invalid_grant')
-    }
-
-    return false
-  }
 }

@@ -14,11 +14,11 @@ export class GmailPollService {
   private readonly logger = new Logger(GmailPollService.name)
   constructor(private readonly prisma: PrismaService) {}
 
-  async pollByLabel(labelName: string, afterDate: string): Promise<PolledMessage[]> {
+  async pollByLabel(tenantId: string, labelName: string, afterDate: string): Promise<PolledMessage[]> {
     const clientId = appConfig.googleClientId
     const clientSecret = appConfig.googleClientSecret
     const userId = appConfig.importGmailUser || 'me'
-    const credential = await this.loadImportCredential()
+    const credential = await this.loadImportCredential(tenantId)
 
     if (!clientId || !clientSecret) {
       this.logger.warn('Gmail import credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.')
@@ -41,11 +41,11 @@ export class GmailPollService {
       .filter((m): m is PolledMessage => Boolean(m))
   }
 
-  async fetchByMessageId(messageId: string): Promise<PolledMessage | null> {
+  async fetchByMessageId(tenantId: string, messageId: string): Promise<PolledMessage | null> {
     const clientId = appConfig.googleClientId
     const clientSecret = appConfig.googleClientSecret
     const userId = appConfig.importGmailUser || 'me'
-    const credential = await this.loadImportCredential()
+    const credential = await this.loadImportCredential(tenantId)
 
     if (!clientId || !clientSecret) {
       this.logger.warn('Gmail import credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.')
@@ -110,10 +110,9 @@ export class GmailPollService {
     return google.gmail({ version: 'v1', auth: oauth2Client })
   }
 
-  private async loadImportCredential(): Promise<GmailCredential> {
-    const row = await this.prisma.pftSetting.findFirst({
-      where: { importGmailRefreshToken: { not: null } },
-      orderBy: { importGmailTokenUpdatedAt: 'desc' },
+  private async loadImportCredential(tenantId: string): Promise<GmailCredential> {
+    const row = await this.prisma.pftSetting.findUnique({
+      where: { tenantId },
       select: { importGmailRefreshToken: true, importGmailEmail: true },
     })
     const refreshToken = row?.importGmailRefreshToken?.trim()

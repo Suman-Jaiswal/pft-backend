@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcrypt'
+import { createHash, randomBytes } from 'crypto'
 import { UsersService } from '@/modules/users/users.service'
 import { appConfig } from '@/config/app.config'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
@@ -32,12 +33,14 @@ export class AuthService {
     return { accessToken }
   }
 
-  async login(email: string, password: string): Promise<{ accessToken: string }> {
+  async login(email: string, password: string): Promise<{ accessToken: string; refreshToken: string }> {
     const user = await this.usersService.findByEmail(email)
     if (!user) throw new UnauthorizedException('Invalid credentials')
     const ok = await bcrypt.compare(password, user.passwordHash)
     if (!ok) throw new UnauthorizedException('Invalid credentials')
-    return this.sign(user)
+    const signed = await this.sign(user)
+    const refreshToken = await this.createRefreshSession(user.id)
+    return { ...signed, refreshToken }
   }
 
   getGoogleAuthUrl(state?: string): string {
@@ -66,21 +69,20 @@ export class AuthService {
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
   }
 
-  async googleCallback(code: string): Promise<{ accessToken: string; email: string }> {
+  async googleCallback(code: string): Promise<{ accessToken: string; email: string; refreshToken: string }> {
     const tokenJson = await this.exchangeGoogleCode(code, appConfig.googleRedirectUri)
     const profile = await this.resolveGoogleProfile(tokenJson)
 
     if (!profile.sub) throw new UnauthorizedException('Google subject missing')
     if (!profile.email) throw new UnauthorizedException('Google email missing')
     const user = await this.usersService.findOrCreateGoogleUser(profile.email, profile.sub)
-    return {
-      ...(await this.sign({
-        ...user,
-        name: profile.name,
-        photoURL: profile.picture,
-      })),
-      email: user.email,
-    }
+    const signed = await this.sign({
+      ...user,
+      name: profile.name,
+      photoURL: profile.picture,
+    })
+    const refreshToken = await this.createRefreshSession(user.id)
+    return { ...signed, email: user.email, refreshToken }
   }
 
   async googleImportCallback(code: string): Promise<{ tenantId: string; email: string }> {
@@ -105,21 +107,22 @@ export class AuthService {
     return { tenantId: user.tenantId, email: profile.email }
   }
 
-  async refresh(payload: {
-    sub: string
-    tenantId: string
-    email: string
-    role: string
-    name?: string
-    photoURL?: string
-  }) {
-    return this.sign({
-      id: payload.sub,
-      tenantId: payload.tenantId,
-      email: payload.email,
-      role: payload.role,
-      name: payload.name,
-      photoURL: payload.photoURL,
+  async refresh(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+    const { user, nextRefreshToken } = await this.rotateRefreshSession(refreshToken)
+    const signed = await this.sign({
+      id: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      role: user.role,
+    })
+    return { ...signed, refreshToken: nextRefreshToken }
+  }
+
+  async logout(refreshToken?: string): Promise<void> {
+    if (!refreshToken) return
+    await this.prisma.authRefreshSession.updateMany({
+      where: { tokenHash: this.hashToken(refreshToken), revokedAt: null },
+      data: { revokedAt: new Date() },
     })
   }
 
@@ -240,5 +243,64 @@ export class AuthService {
         updatedBy: params.actor,
       },
     })
+  }
+
+  private async createRefreshSession(userId: string): Promise<string> {
+    const token = this.generateRefreshToken()
+    const expiresAt = new Date(Date.now() + appConfig.refreshTokenTtlDays * 24 * 60 * 60 * 1000)
+    await this.prisma.authRefreshSession.create({
+      data: {
+        userId,
+        tokenHash: this.hashToken(token),
+        expiresAt,
+      },
+    })
+    return token
+  }
+
+  private async rotateRefreshSession(token: string): Promise<{
+    user: { id: string; tenantId: string; email: string; role: string }
+    nextRefreshToken: string
+  }> {
+    const tokenHash = this.hashToken(token)
+    const now = new Date()
+    const current = await this.prisma.authRefreshSession.findFirst({
+      where: { tokenHash, revokedAt: null, expiresAt: { gt: now } },
+      include: { user: true },
+    })
+    if (!current) throw new UnauthorizedException('Invalid refresh token')
+
+    const nextRefreshToken = this.generateRefreshToken()
+    const nextExpiresAt = new Date(Date.now() + appConfig.refreshTokenTtlDays * 24 * 60 * 60 * 1000)
+    await this.prisma.$transaction([
+      this.prisma.authRefreshSession.update({
+        where: { id: current.id },
+        data: { revokedAt: now },
+      }),
+      this.prisma.authRefreshSession.create({
+        data: {
+          userId: current.userId,
+          tokenHash: this.hashToken(nextRefreshToken),
+          expiresAt: nextExpiresAt,
+        },
+      }),
+    ])
+    return {
+      user: {
+        id: current.user.id,
+        tenantId: current.user.tenantId,
+        email: current.user.email,
+        role: current.user.role,
+      },
+      nextRefreshToken,
+    }
+  }
+
+  private generateRefreshToken(): string {
+    return randomBytes(48).toString('base64url')
+  }
+
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex')
   }
 }

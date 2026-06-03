@@ -16,6 +16,21 @@ model User {
   role         String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  refreshSessions AuthRefreshSession[]
+}
+
+model AuthRefreshSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt], map: "idx_auth_refresh_session_user_exp")
 }
 
 model MonthlyPlan {
@@ -170,6 +185,7 @@ model ImportJobState {
 model ImportJobRun {
   id         String   @id @default(cuid())
   jobKey     String
+  tenantId   String?
   status     String
   payload    Json
   startedAt  DateTime
@@ -178,6 +194,7 @@ model ImportJobRun {
   updatedAt  DateTime @updatedAt
 
   @@index([jobKey, createdAt], map: "idx_import_job_run_job_created")
+  @@index([jobKey, tenantId, createdAt], map: "idx_import_job_run_job_tenant_created")
 }
 
 model ImportMessageFailure {

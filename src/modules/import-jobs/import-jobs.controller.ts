@@ -75,15 +75,20 @@ export class ImportJobsController {
   }
 
   @Get('cc-statements-import/runs/:id')
-  @ApiOperation({ summary: 'Get CC statements import run [AUTH: X-Job-Token]' })
+  @ApiOperation({ summary: 'Get CC statements import run [AUTH: X-Job-Token + X-Tenant-Id]' })
   @ApiSecurity('job-token')
+  @ApiSecurity('tenant-id')
   @HttpCode(HttpStatus.OK)
   async getCcStatementsImportRun(
     @Param('id') runId: string,
     @Headers('x-job-token') token?: string,
+    @Headers('x-tenant-id') tenantId?: string,
   ) {
     this.ensureJobToken(token)
-    const result = await this.importJobsService.getCcStatementsImportRun(runId)
+    const result = await this.importJobsService.getCcStatementsImportRun(
+      this.requireTenantId(tenantId),
+      runId,
+    )
     if (!result) throw new NotFoundException('Import run not found')
     return ok(result)
   }

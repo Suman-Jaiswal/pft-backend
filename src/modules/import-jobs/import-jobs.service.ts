@@ -41,7 +41,6 @@ export class ImportJobsService {
     bankKeys?: string[]
     owner: string
   }): Promise<ImportRunSummary> {
-    void options.tenantId
     const acquired = await this.lockService.acquire(JOB_KEY, options.owner, LOCK_TTL_MS)
     if (!acquired) {
       const now = new Date().toISOString()
@@ -68,6 +67,7 @@ export class ImportJobsService {
 
     try {
       return await this.ccTxnImportService.runImport({
+        tenantId: options.tenantId,
         dryRun: options.dryRun,
         bankKeys: options.bankKeys,
       })
@@ -120,7 +120,7 @@ export class ImportJobsService {
         },
       }),
       this.prisma.importJobRun.findFirst({
-        where: { jobKey: JOB_KEY },
+        where: { jobKey: JOB_KEY, tenantId },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, status: true, payload: true },
       }),
@@ -165,6 +165,7 @@ export class ImportJobsService {
     const created = await this.prisma.importJobRun.create({
       data: {
         jobKey: STATEMENTS_JOB_KEY,
+        tenantId: options.tenantId,
         status: 'RUNNING',
         payload: toJsonValue(initialPayload),
         startedAt,
@@ -210,7 +211,7 @@ export class ImportJobsService {
         },
       }),
       this.prisma.importJobRun.findFirst({
-        where: { jobKey: STATEMENTS_JOB_KEY },
+        where: { jobKey: STATEMENTS_JOB_KEY, tenantId },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, status: true, payload: true },
       }),
@@ -240,9 +241,9 @@ export class ImportJobsService {
     }
   }
 
-  async getCcStatementsImportRun(runId: string): Promise<CcStatementsImportRunSnapshot | null> {
+  async getCcStatementsImportRun(tenantId: string, runId: string): Promise<CcStatementsImportRunSnapshot | null> {
     const row = await this.prisma.importJobRun.findFirst({
-      where: { id: runId, jobKey: STATEMENTS_JOB_KEY },
+      where: { id: runId, jobKey: STATEMENTS_JOB_KEY, tenantId },
       select: { id: true, status: true, createdAt: true, updatedAt: true, payload: true },
     })
     if (!row) return null

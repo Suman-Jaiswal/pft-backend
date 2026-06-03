@@ -1,6 +1,10 @@
 export const appConfig = {
   jwtSecret: process.env.JWT_SECRET ?? 'dev-secret',
   jwtExpiry: process.env.JWT_EXPIRY ?? '1h',
+  refreshTokenTtlDays: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? '30'),
+  refreshCookieName: process.env.REFRESH_COOKIE_NAME ?? 'pft_refresh_token',
+  refreshCookieSecure: process.env.REFRESH_COOKIE_SECURE === 'true',
+  refreshCookieSameSite: (process.env.REFRESH_COOKIE_SAME_SITE ?? 'lax') as 'lax' | 'strict' | 'none',
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
   googleRedirectUri: process.env.GOOGLE_REDIRECT_URI ?? '',

@@ -4,6 +4,7 @@ import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { appConfig } from '@/config/app.config'
 import { google, gmail_v1 } from 'googleapis'
 import { ImportErrorCode, StatementImportResult, StatementImportRunSummary, StatementImportSourceConfig } from '@/modules/import-jobs/types/import-contracts'
+import { resolveImportErrorCode } from '@/modules/import-jobs/services/import-auth-error.util'
 
 type ParsedStatement = {
   dueDate: string
@@ -182,7 +183,7 @@ export class CcStatementsImportService {
       this.logger.log(
         `[SOURCE_START] card=${source.cardKey} label="${source.labelName}" flow=${source.flow} dryRun=${dryRun}`,
       )
-      const message = await this.fetchLatestMessageByLabel(source.labelName)
+      const message = await this.fetchLatestMessageByLabel(tenantId, source.labelName)
       if (!message) {
         this.logger.warn(`[SOURCE_SKIP] card=${source.cardKey} label="${source.labelName}" reason=no_message`)
         return {
@@ -220,7 +221,7 @@ export class CcStatementsImportService {
 
       const parsed = source.flow === 'direct'
         ? await this.parseDirectStatement(source.cardKey, source.labelName, message.subject, message.body)
-        : await this.parsePdfStatement(message, source)
+        : await this.parsePdfStatement(tenantId, message, source)
 
       if (!parsed) {
         this.logger.warn(
@@ -380,7 +381,7 @@ export class CcStatementsImportService {
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
-      const code = msg.toLowerCase().includes('reauth_required') ? REAUTH_REQUIRED_CODE : undefined
+      const code = resolveImportErrorCode(error)
       this.logger.error(`Statement import failed for ${source.cardKey}: ${msg}`)
       return {
         cardKey: source.cardKey,
@@ -397,14 +398,14 @@ export class CcStatementsImportService {
     }
   }
 
-  private async fetchLatestMessageByLabel(labelName: string): Promise<{
+  private async fetchLatestMessageByLabel(tenantId: string, labelName: string): Promise<{
     id: string
     subject: string
     body: string
     receivedAtMs: number
     payload: gmail_v1.Schema$MessagePart | undefined
   } | null> {
-    const gmail = await this.getGmailClient()
+    const gmail = await this.getGmailClient(tenantId)
     const query = `label:"${labelName}"`
     this.logger.log(`[GMAIL_LIST] label="${labelName}" query=${query}`)
     const list = await gmail.users.messages.list({
@@ -458,6 +459,7 @@ export class CcStatementsImportService {
   }
 
   private async parsePdfStatement(
+    tenantId: string,
     message: { id: string; subject: string; payload: gmail_v1.Schema$MessagePart | undefined },
     source: StatementSource,
   ): Promise<ParsedStatement | null> {
@@ -468,7 +470,7 @@ export class CcStatementsImportService {
       return null
     }
 
-    const gmail = await this.getGmailClient()
+    const gmail = await this.getGmailClient(tenantId)
     const data = await gmail.users.messages.attachments.get({
       userId: appConfig.importGmailUser || 'me',
       messageId: message.id,
@@ -882,15 +884,14 @@ export class CcStatementsImportService {
     return `${y}-${m}`
   }
 
-  private async getGmailClient() {
+  private async getGmailClient(tenantId: string) {
     const clientId = appConfig.googleClientId
     const clientSecret = appConfig.googleClientSecret
     if (!clientId || !clientSecret) {
       throw new Error('reauth_required: google_client_credentials_missing')
     }
-    const setting = await this.prisma.pftSetting.findFirst({
-      where: { importGmailRefreshToken: { not: null } },
-      orderBy: { importGmailTokenUpdatedAt: 'desc' },
+    const setting = await this.prisma.pftSetting.findUnique({
+      where: { tenantId },
       select: { importGmailRefreshToken: true },
     })
     const refreshToken = setting?.importGmailRefreshToken?.trim()

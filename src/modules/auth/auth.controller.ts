@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Post, Query, Req, Res, UseGuards, UnauthorizedException } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { AuthService } from '@/modules/auth/auth.service'
 import { GoogleCallbackQueryDto } from '@/modules/auth/dto/google-callback.query.dto'
@@ -7,7 +7,7 @@ import { LoginDto } from '@/modules/auth/dto/login.dto'
 import { ok } from '@/shared/presentation/api-response'
 import { appConfig } from '@/config/app.config'
 import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
-import { Response } from 'express'
+import { Request, Response } from 'express'
 
 type ReqUser = {
   user: { sub: string; tenantId: string; email: string; role: string; name?: string; photoURL?: string }
@@ -20,8 +20,10 @@ export class AuthController {
 
   @Post('login')
   @ApiOperation({ summary: 'Login [AUTH: NONE]' })
-  async login(@Body() dto: LoginDto) {
-    return ok(await this.authService.login(dto.email, dto.password))
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    const auth = await this.authService.login(dto.email, dto.password)
+    this.setRefreshCookie(res, auth.refreshToken)
+    return ok({ accessToken: auth.accessToken })
   }
 
   @Get('google/start')
@@ -41,6 +43,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Google OAuth callback [AUTH: NONE]' })
   async googleCallback(@Query() query: GoogleCallbackQueryDto, @Res() res: Response) {
     const out = await this.authService.googleCallback(query.code)
+    this.setRefreshCookie(res, out.refreshToken)
     const redirect = `${appConfig.authSuccessRedirect}?token=${encodeURIComponent(out.accessToken)}`
     return res.redirect(redirect)
   }
@@ -69,19 +72,22 @@ export class AuthController {
     return ok(req.user)
   }
 
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Post('refresh')
-  @ApiOperation({ summary: 'Refresh JWT [AUTH: JWT]' })
-  async refresh(@Req() req: ReqUser) {
-    return ok(await this.authService.refresh(req.user))
+  @ApiOperation({ summary: 'Refresh JWT [AUTH: NONE, refresh cookie]' })
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const refreshToken = this.readRefreshCookie(req)
+    if (!refreshToken) throw new UnauthorizedException('Missing refresh token')
+    const auth = await this.authService.refresh(refreshToken)
+    this.setRefreshCookie(res, auth.refreshToken)
+    return ok({ accessToken: auth.accessToken })
   }
 
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Post('logout')
-  @ApiOperation({ summary: 'Logout [AUTH: JWT]' })
-  async logout() {
+  @ApiOperation({ summary: 'Logout [AUTH: NONE]' })
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const refreshToken = this.readRefreshCookie(req)
+    await this.authService.logout(refreshToken ?? undefined)
+    this.clearRefreshCookie(res)
     return ok({ loggedOut: true })
   }
 
@@ -94,5 +100,37 @@ export class AuthController {
       return `${base}${decoded}`
     }
     return appConfig.importReauthSuccessRedirect
+  }
+
+  private setRefreshCookie(res: Response, refreshToken: string): void {
+    res.cookie(appConfig.refreshCookieName, refreshToken, {
+      httpOnly: true,
+      secure: appConfig.refreshCookieSecure,
+      sameSite: appConfig.refreshCookieSameSite,
+      path: '/api/v1/auth',
+      maxAge: appConfig.refreshTokenTtlDays * 24 * 60 * 60 * 1000,
+    })
+  }
+
+  private clearRefreshCookie(res: Response): void {
+    res.clearCookie(appConfig.refreshCookieName, {
+      httpOnly: true,
+      secure: appConfig.refreshCookieSecure,
+      sameSite: appConfig.refreshCookieSameSite,
+      path: '/api/v1/auth',
+    })
+  }
+
+  private readRefreshCookie(req: Request): string | null {
+    const cookieHeader = req.headers.cookie ?? ''
+    if (!cookieHeader) return null
+    const targetPrefix = `${appConfig.refreshCookieName}=`
+    const part = cookieHeader
+      .split(';')
+      .map((v) => v.trim())
+      .find((v) => v.startsWith(targetPrefix))
+    if (!part) return null
+    const value = part.slice(targetPrefix.length)
+    return value ? decodeURIComponent(value) : null
   }
 }
