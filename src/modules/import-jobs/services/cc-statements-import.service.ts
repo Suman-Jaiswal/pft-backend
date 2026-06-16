@@ -202,6 +202,13 @@ export class CcStatementsImportService {
       this.logger.log(
         `[SOURCE_MESSAGE] card=${source.cardKey} messageId=${message.id} receivedAt=${new Date(message.receivedAtMs).toISOString()} syncMonth=${syncMonth}`,
       )
+      this.logVerbose(source.cardKey, 'SOURCE_MESSAGE_FULL', {
+        label: source.labelName,
+        messageId: message.id,
+        subject: message.subject,
+        body: message.body,
+        payload: message.payload,
+      })
 
       const card = await this.findCardForSource(tenantId, source.cardKey)
       if (!card) {
@@ -222,6 +229,7 @@ export class CcStatementsImportService {
       const parsed = source.flow === 'direct'
         ? await this.parseDirectStatement(source.cardKey, source.labelName, message.subject, message.body)
         : await this.parsePdfStatement(tenantId, message, source)
+      this.logVerbose(source.cardKey, 'SOURCE_PARSED_RESULT', parsed ?? null)
 
       if (!parsed) {
         this.logger.warn(
@@ -259,6 +267,11 @@ export class CcStatementsImportService {
             select: { id: true, statementMonth: true },
           })
       const targetRow = existing ?? existingLegacyShifted
+      this.logVerbose(source.cardKey, 'SOURCE_DB_DECISION', {
+        existingCurrentMonth: existing,
+        existingLegacyShifted,
+        targetRow,
+      })
 
       if (dryRun) {
         this.logger.log(
@@ -447,9 +460,15 @@ export class CcStatementsImportService {
     subject: string,
     body: string,
   ): Promise<ParsedStatement | null> {
+    this.logVerbose(cardKey, 'DIRECT_INPUT_FULL', {
+      labelName,
+      subject,
+      body,
+    })
     const gemini = await this.parseStatementTextWithGemini(body, labelName, subject)
     if (gemini) {
       this.logger.log(`[DIRECT_GEMINI_PARSE_OK] card=${cardKey}`)
+      this.logVerbose(cardKey, 'DIRECT_OUTPUT_FULL', gemini)
       return gemini
     }
     this.logger.warn(
@@ -491,6 +510,11 @@ export class CcStatementsImportService {
     this.logger.log(
       `[PDF_DECRYPT_OK] card=${source.cardKey} decryptedSize=${decrypt.decryptedSize} passwordUsed=${decrypt.passwordUsedMasked ?? 'none'}`,
     )
+    this.logVerbose(source.cardKey, 'PDF_DECRYPT_FULL_TEXT', {
+      label: source.labelName,
+      subject: message.subject,
+      decryptedText: decrypt.text,
+    })
 
     const parsed = await this.parseStatementTextWithGemini(decrypt.text, source.labelName, message.subject)
     if (parsed) {
@@ -597,6 +621,7 @@ export class CcStatementsImportService {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
     }
+    this.logVerboseFromLabel(labelName, 'GEMINI_PROMPT_FULL', { subject, prompt, payload })
 
     let bodyText = ''
     for (let attempt = 1; attempt <= appConfig.statementGeminiMaxAttempts; attempt++) {
@@ -606,6 +631,12 @@ export class CcStatementsImportService {
         body: JSON.stringify(payload),
       })
       bodyText = await resp.text()
+      this.logVerboseFromLabel(labelName, 'GEMINI_RESPONSE_ATTEMPT', {
+        attempt,
+        status: resp.status,
+        ok: resp.ok,
+        bodyText,
+      })
       if (resp.ok) break
       const canRetry = [429, 500, 502, 503, 504].includes(resp.status)
       if (!canRetry || attempt === appConfig.statementGeminiMaxAttempts) {
@@ -640,6 +671,7 @@ export class CcStatementsImportService {
       )
       return null
     }
+    this.logVerboseFromLabel(labelName, 'GEMINI_PARSED_OBJECT', obj)
     const dueDate = obj.due_date ?? obj.dueDate ?? null
     const minimum = obj.minimum_amount_due ?? obj.minimumAmountDue ?? null
     const total = obj.total_amount_due ?? obj.totalAmountDue ?? null
@@ -650,6 +682,32 @@ export class CcStatementsImportService {
       return null
     }
     return this.toParsedStatement(String(dueDate), Number(minimum), Number(total))
+  }
+
+  private isVerboseCard(cardKey: string): boolean {
+    const target = (appConfig.statementSyncVerboseCardKey || '').trim().toUpperCase()
+    if (appConfig.statementSyncVerboseLogs) return true
+    if (!target) return false
+    return cardKey.trim().toUpperCase() === target
+  }
+
+  private logVerbose(cardKey: string, step: string, payload: unknown): void {
+    if (!this.isVerboseCard(cardKey)) return
+    this.logger.log(`[SYNC_VERBOSE] card=${cardKey} step=${step} payload=${this.stringifyForLog(payload)}`)
+  }
+
+  private logVerboseFromLabel(labelName: string, step: string, payload: unknown): void {
+    const mapping = STATEMENT_SOURCES.find((s) => s.labelName === labelName)
+    if (!mapping) return
+    this.logVerbose(mapping.cardKey, step, payload)
+  }
+
+  private stringifyForLog(value: unknown): string {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
   }
 
   private buildPasswordCandidates(labelName: string, subject: string, explicitPassword?: string): string[] {

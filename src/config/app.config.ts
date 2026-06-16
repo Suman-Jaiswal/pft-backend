@@ -39,6 +39,8 @@ export const appConfig = {
   statementGeminiModel: process.env.STATEMENT_GEMINI_MODEL ?? 'gemini-2.5-flash',
   statementGeminiMaxAttempts: Number(process.env.STATEMENT_GEMINI_MAX_ATTEMPTS ?? '4'),
   statementGeminiBackoffMs: Number(process.env.STATEMENT_GEMINI_BASE_BACKOFF_MS ?? '2000'),
+  statementSyncVerboseLogs: process.env.STATEMENT_SYNC_VERBOSE_LOGS !== 'false',
+  statementSyncVerboseCardKey: process.env.STATEMENT_SYNC_VERBOSE_CARD_KEY ?? 'ICICI_XX5000',
   importDebugParserInput: process.env.IMPORT_DEBUG_PARSER_INPUT === 'true',
   importDebugBodyMaxLen: Number(process.env.IMPORT_DEBUG_BODY_MAX_LEN ?? '1200'),
 }
