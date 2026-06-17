@@ -54,6 +54,41 @@ export class PrismaStatementRepository implements IStatementRepository {
     return toEntity(row)
   }
 
+  async upsert(statement: StatementEntity): Promise<StatementEntity> {
+    const row = await this.prisma.statement.upsert({
+      where: {
+        tenantId_cardId_statementMonth: {
+          tenantId: statement.tenantId,
+          cardId: statement.cardId,
+          statementMonth: statement.statementMonth.value,
+        },
+      },
+      create: {
+        id: statement.id,
+        tenantId: statement.tenantId,
+        cardId: statement.cardId,
+        cardKey: statement.cardKey,
+        statementMonth: statement.statementMonth.value,
+        dueDate: statement.dueDate,
+        minimumAmountDue: statement.minimumAmountDue,
+        totalAmountDue: statement.totalAmountDue,
+        status: statement.status,
+        statementSyncMonth: statement.statementSyncMonth ?? undefined,
+        createdBy: statement.createdBy,
+        updatedBy: statement.updatedBy,
+      },
+      update: {
+        dueDate: statement.dueDate,
+        minimumAmountDue: statement.minimumAmountDue,
+        totalAmountDue: statement.totalAmountDue,
+        status: statement.status,
+        statementSyncMonth: statement.statementSyncMonth ?? undefined,
+        updatedBy: statement.updatedBy,
+      },
+    })
+    return toEntity(row)
+  }
+
   async findById(tenantId: string, id: string): Promise<StatementEntity | null> {
     const row = await this.prisma.statement.findFirst({ where: { tenantId, id } })
     return row ? toEntity(row) : null

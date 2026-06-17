@@ -10,6 +10,7 @@ export interface StatementQuery {
 
 export interface IStatementRepository {
   create(statement: StatementEntity): Promise<StatementEntity>
+  upsert(statement: StatementEntity): Promise<StatementEntity>
   findById(tenantId: string, id: string): Promise<StatementEntity | null>
   findByCardAndMonth(tenantId: string, cardId: string, statementMonth: string): Promise<StatementEntity | null>
   list(query: StatementQuery): Promise<{ items: StatementEntity[]; total: number }>
