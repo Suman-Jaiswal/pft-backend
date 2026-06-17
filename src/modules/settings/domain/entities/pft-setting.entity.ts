@@ -23,7 +23,7 @@ export class PftSettingEntity extends BaseEntity {
     public readonly defaultOtherExpenses: number,
     public readonly prevLiquidBalance: number,
     public readonly prevInvestmentBalance: number,
-    public readonly stashBalance: number,
+    public readonly stashDeductions: number,
     public readonly dashboardYearRange: string | null,
     public readonly dashboardBaselineVersion: number,
     public readonly importGmailRefreshToken: string | null,

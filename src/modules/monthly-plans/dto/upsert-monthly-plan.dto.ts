@@ -20,6 +20,7 @@ export class UpsertMonthlyPlanDto {
   @ApiPropertyOptional() @IsOptional() @IsNumber() stocks?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() fd?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() savings?: number
+  @ApiPropertyOptional() @IsOptional() @IsNumber() stash?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() otherExpenses?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() salary?: number
   @ApiPropertyOptional() @IsOptional() @IsNumber() otherSources?: number

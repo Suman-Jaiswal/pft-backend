@@ -233,7 +233,7 @@ export class AuthService {
         defaultOtherExpenses: 0,
         prevLiquidBalance: 0,
         prevInvestmentBalance: 0,
-        stashBalance: 0,
+        stashDeductions: 0,
         dashboardBaselineVersion: 1,
         importGmailRefreshToken: params.refreshToken,
         importGmailEmail: params.email,

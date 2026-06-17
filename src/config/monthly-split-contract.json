@@ -5,6 +5,7 @@
     { "key": "otherSources", "label": "Other Sources", "section": "income", "defaultValue": 0, "apiKey": "otherSources", "sheetKey": "other_sources", "configKey": "default_other_sources" },
     { "key": "fd", "label": "FD", "section": "liquidBalance", "defaultValue": 0, "apiKey": "fd", "sheetKey": "fd", "configKey": "default_fd" },
     { "key": "savings", "label": "Savings", "section": "liquidBalance", "defaultValue": 0, "apiKey": "savings", "sheetKey": "savings", "configKey": "default_savings" },
+    { "key": "stash", "label": "Stash", "section": "liquidBalance", "defaultValue": 0, "apiKey": "stash", "sheetKey": "stash", "configKey": "default_stash" },
     { "key": "rent", "label": "Rent", "section": "fixedCosts", "defaultValue": 18500, "apiKey": "rent", "sheetKey": "rent", "configKey": "default_rent" },
     { "key": "cook", "label": "Cook / Maid", "section": "fixedCosts", "defaultValue": 4000, "apiKey": "cook", "sheetKey": "cook", "configKey": "default_cook" },
     { "key": "bills", "label": "Bills (CC / other)", "section": "fixedCosts", "defaultValue": 0, "apiKey": "bills", "sheetKey": "bills", "configKey": "default_bills" },

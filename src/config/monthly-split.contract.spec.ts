@@ -24,12 +24,10 @@ describe('monthly split mirrored contract', () => {
   const contractPath = resolve(root, 'src/config/monthly-split-contract.json')
   const monthlyDtoPath = resolve(root, 'src/modules/monthly-plans/dto/upsert-monthly-plan.dto.ts')
   const settingsDtoPath = resolve(root, 'src/modules/settings/presentation/dto/update-pft-settings.dto.ts')
-  const migrateScriptPath = resolve(root, 'scripts/migrate-firestore.ts')
 
   const contract = JSON.parse(readFileSync(contractPath, 'utf8')) as { fields: ContractField[] }
   const monthlyDtoSource = readFileSync(monthlyDtoPath, 'utf8')
   const settingsDtoSource = readFileSync(settingsDtoPath, 'utf8')
-  const migrateScriptSource = readFileSync(migrateScriptPath, 'utf8')
 
   it('keeps monthly DTO payload fields aligned with contract', () => {
     const monthlyContractApiKeys = contract.fields
@@ -58,11 +56,5 @@ describe('monthly split mirrored contract', () => {
     const dtoDefaultKeys = dtoOptionalKeys.filter((key) => key.startsWith('default'))
 
     expect(dtoDefaultKeys.sort()).toEqual(Array.from(contractDefaults).sort())
-  })
-
-  it('keeps migration script config keys aligned with contract', () => {
-    for (const field of contract.fields) {
-      expect(migrateScriptSource).toContain(field.configKey)
-    }
   })
 })

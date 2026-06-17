@@ -47,6 +47,7 @@ model MonthlyPlan {
   stocks         Decimal  @default(0)
   fd             Decimal  @default(0)
   savings        Decimal  @default(0)
+  stash          Decimal  @default(0)
   otherExpenses  Decimal  @default(0)
   customExpenses Json?
   salary         Decimal  @default(0)
@@ -246,7 +247,7 @@ model PftSetting {
   defaultOtherExpenses  Decimal  @default(0)
   prevLiquidBalance     Decimal  @default(0)
   prevInvestmentBalance Decimal  @default(0)
-  stashBalance          Decimal  @default(0)
+  stashDeductions       Decimal  @default(0)
   dashboardYearRange    String?
   dashboardBaselineVersion Int   @default(1)
   importGmailRefreshToken String?

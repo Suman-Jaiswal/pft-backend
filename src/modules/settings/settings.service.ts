@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
@@ -19,6 +19,15 @@ export type PftBaselineRow = {
   lockedBy: string
   metrics: Record<string, unknown>
   createdAt: string
+}
+
+export type PftSettingsWithComputedStash = PftSettingEntity & {
+  computedStashBalance: number
+}
+
+export type DeductStashResult = {
+  setting: PftSettingEntity
+  appliedDeduction: number
 }
 
 function toFiniteNumber(value: unknown): number {
@@ -70,6 +79,19 @@ export class SettingsService {
     return this.repository.upsert(defaults)
   }
 
+  async getPftSettingsWithComputedStash(tenantId: string): Promise<PftSettingsWithComputedStash> {
+    const settings = await this.getPftSettings(tenantId)
+    const aggregate = await this.prisma.monthlyPlan.aggregate({
+      where: { tenantId },
+      _sum: { stash: true },
+    })
+    const totalStash = Number(aggregate._sum.stash ?? 0)
+    return {
+      ...settings,
+      computedStashBalance: totalStash - Number(settings.stashDeductions ?? 0),
+    }
+  }
+
   async updatePftSettings(
     tenantId: string,
     actorId: string,
@@ -98,7 +120,7 @@ export class SettingsService {
       dto.defaultOtherExpenses ?? current.defaultOtherExpenses,
       dto.prevLiquidBalance ?? current.prevLiquidBalance,
       dto.prevInvestmentBalance ?? current.prevInvestmentBalance,
-      dto.stashBalance ?? current.stashBalance,
+      dto.stashDeductions ?? current.stashDeductions,
       dto.dashboardYearRange ?? current.dashboardYearRange,
       dto.dashboardBaselineVersion ?? current.dashboardBaselineVersion,
       current.importGmailRefreshToken,
@@ -109,9 +131,23 @@ export class SettingsService {
     return this.repository.upsert(updated)
   }
 
-  async deductStash(tenantId: string, actorId: string, amount: number): Promise<PftSettingEntity> {
+  async deductStash(tenantId: string, actorId: string, amount: number): Promise<DeductStashResult> {
     const current = await this.getPftSettings(tenantId)
-    const nextStash = Math.max(0, current.stashBalance - Math.max(0, amount))
+    const aggregate = await this.prisma.monthlyPlan.aggregate({
+      where: { tenantId },
+      _sum: { stash: true },
+    })
+    const totalStash = Number(aggregate._sum.stash ?? 0)
+    const currentDeductions = Math.max(0, current.stashDeductions)
+    const availableStash = Math.max(0, totalStash - currentDeductions)
+    const requestedDeduction = Math.max(0, amount)
+    if (requestedDeduction > availableStash) {
+      throw new BadRequestException(
+        `Deduction exceeds current stash balance (available: ₹${availableStash.toLocaleString('en-IN')}).`,
+      )
+    }
+    const appliedDeduction = requestedDeduction
+    const nextDeductions = currentDeductions + appliedDeduction
     const updated = new PftSettingEntity(
       current.id,
       current.tenantId,
@@ -134,7 +170,7 @@ export class SettingsService {
       current.defaultOtherExpenses,
       current.prevLiquidBalance,
       current.prevInvestmentBalance,
-      nextStash,
+      nextDeductions,
       current.dashboardYearRange,
       current.dashboardBaselineVersion,
       current.importGmailRefreshToken,
@@ -142,7 +178,8 @@ export class SettingsService {
       current.importGmailScope,
       current.importGmailTokenUpdatedAt,
     )
-    return this.repository.upsert(updated)
+    const setting = await this.repository.upsert(updated)
+    return { setting, appliedDeduction }
   }
 
   async listBaselines(tenantId: string, periodKey: string): Promise<PftBaselineRow[]> {
