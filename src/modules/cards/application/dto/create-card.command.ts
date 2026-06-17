@@ -10,4 +10,5 @@ export interface CreateCardCommand {
   fullCardNumber?: string
   cvv?: string
   expiryDate?: string
+  variant?: string
 }

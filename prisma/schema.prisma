@@ -104,6 +104,7 @@ model Card {
   fullCardNumberEnc    String?
   cvvEnc               String?
   expiryDate           String?
+  variant              String?
   status               String
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

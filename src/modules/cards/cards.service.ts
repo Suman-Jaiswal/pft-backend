@@ -45,6 +45,7 @@ export class CardsService {
       dto.fullCardNumber ?? current.fullCardNumber,
       dto.cvv ?? current.cvv,
       dto.expiryDate ?? current.expiryDate,
+      dto.variant ?? current.variant,
     )
     return this.repository.update(updated)
   }

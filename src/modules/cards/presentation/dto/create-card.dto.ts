@@ -46,4 +46,9 @@ export class CreateCardDto {
   @Matches(/^\d{2}\/\d{2}$/)
   @IsOptional()
   expiryDate?: string
+
+  @ApiPropertyOptional({ example: 'Millennia' })
+  @IsString()
+  @IsOptional()
+  variant?: string
 }

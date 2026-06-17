@@ -39,6 +39,7 @@ function toEntity(row: Card): CardEntity {
     decryptOrNull(row.fullCardNumberEnc),
     decryptOrNull(row.cvvEnc),
     row.expiryDate,
+    row.variant,
   )
 }
 
@@ -60,6 +61,7 @@ export class PrismaCardRepository implements ICardRepository {
         fullCardNumberEnc: card.fullCardNumber ? encryptField(card.fullCardNumber) : undefined,
         cvvEnc: card.cvv ? encryptField(card.cvv) : undefined,
         expiryDate: card.expiryDate ?? undefined,
+        variant: card.variant ?? undefined,
         status: card.status,
         createdBy: card.createdBy,
         updatedBy: card.updatedBy,
@@ -104,6 +106,7 @@ export class PrismaCardRepository implements ICardRepository {
         fullCardNumberEnc: card.fullCardNumber ? encryptField(card.fullCardNumber) : undefined,
         cvvEnc: card.cvv ? encryptField(card.cvv) : undefined,
         expiryDate: card.expiryDate ?? undefined,
+        variant: card.variant ?? undefined,
         status: card.status,
         updatedBy: card.updatedBy,
       },
