@@ -34,7 +34,7 @@ export class StatementsService {
       (dto.status as StatementStatus | undefined) ?? StatementStatus.DUE,
       dto.statementSyncMonth ?? null,
     )
-    return this.repository.create(entity)
+    return this.repository.upsert(entity)
   }
 
   async get(tenantId: string, id: string): Promise<StatementEntity> {
