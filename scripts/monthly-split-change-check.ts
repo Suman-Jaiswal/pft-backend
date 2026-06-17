@@ -34,11 +34,7 @@ function main(): void {
     },
     {
       file: resolve(root, 'src/modules/monthly-plans/monthly-plans.service.ts'),
-      tokens: ['calcFreeCash', 'otherSources', 'sipMf', 'stocks', 'fd', 'savings'],
-    },
-    {
-      file: resolve(root, 'scripts/migrate-firestore.ts'),
-      tokens: contract.fields.map((field) => field.configKey),
+      tokens: ['otherSources', 'sipMf', 'stocks', 'fd', 'savings', 'stash'],
     },
     {
       file: resolve(root, 'scripts/reconcile-migration.ts'),
