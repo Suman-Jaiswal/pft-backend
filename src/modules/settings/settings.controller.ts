@@ -25,7 +25,7 @@ export class SettingsController {
   @Roles(Role.ADMIN, Role.USER)
   @ApiOperation({ summary: 'Get settings [AUTH: JWT]' })
   async get(@Req() req: ReqUser) {
-    return ok(await this.settingsService.getPftSettings(req.user.tenantId))
+    return ok(await this.settingsService.getPftSettingsWithComputedStash(req.user.tenantId))
   }
 
   @Patch()
@@ -74,5 +74,13 @@ export class SettingsController {
   @ApiOperation({ summary: 'Deduct stash [AUTH: JWT]' })
   async deductStash(@Req() req: ReqUser, @Body() dto: DeductStashDto) {
     return ok(await this.settingsService.deductStash(req.user.tenantId, req.user.sub, dto.amount))
+  }
+
+  @Get('stash/balance')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Get computed stash balance [AUTH: JWT]' })
+  async getStashBalance(@Req() req: ReqUser) {
+    const settings = await this.settingsService.getPftSettingsWithComputedStash(req.user.tenantId)
+    return ok(settings.computedStashBalance)
   }
 }

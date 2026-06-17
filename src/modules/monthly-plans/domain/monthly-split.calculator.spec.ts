@@ -15,6 +15,7 @@ describe('monthly split calculator', () => {
     bills: 7000,
     sipMf: 10000,
     savings: 3000,
+    stash: 4000,
     stocks: 5000,
     fd: 2000,
     otherExpenses: 1500,
@@ -31,14 +32,14 @@ describe('monthly split calculator', () => {
   })
 
   it('computes savings allocation', () => {
-    expect(calcSavingsAllocation(input)).toBe(13000)
+    expect(calcSavingsAllocation(input)).toBe(17000)
   })
 
   it('computes total out', () => {
-    expect(calcTotalOut(input)).toBe(61000)
+    expect(calcTotalOut(input)).toBe(65000)
   })
 
   it('computes free cash', () => {
-    expect(calcFreeCash(input)).toBe(64000)
+    expect(calcFreeCash(input)).toBe(60000)
   })
 })

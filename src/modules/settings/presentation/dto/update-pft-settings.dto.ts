@@ -16,12 +16,13 @@ export class UpdatePftSettingsDto {
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultStocks?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultFd?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultSavings?: number
+  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultStash?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultBills?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultBasicExpenses?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultOtherExpenses?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() prevLiquidBalance?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() prevInvestmentBalance?: number
-  @ApiPropertyOptional() @IsNumber() @IsOptional() stashBalance?: number
+  @ApiPropertyOptional() @IsNumber() @IsOptional() stashDeductions?: number
   @ApiPropertyOptional() @IsString() @IsOptional() dashboardYearRange?: string
   @ApiPropertyOptional() @IsNumber() @IsOptional() dashboardBaselineVersion?: number
 }

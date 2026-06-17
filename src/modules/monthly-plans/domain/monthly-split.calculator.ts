@@ -6,6 +6,7 @@ export type MonthlySplitCalculatorInput = {
   bills: number
   sipMf: number
   savings: number
+  stash: number
   stocks: number
   fd: number
   otherExpenses: number
@@ -43,9 +44,9 @@ export function calcExpenseOut(
 }
 
 export function calcSavingsAllocation(
-  input: Pick<MonthlySplitCalculatorInput, 'sipMf' | 'savings'>,
+  input: Pick<MonthlySplitCalculatorInput, 'sipMf' | 'savings' | 'stash'>,
 ): number {
-  return input.sipMf + input.savings
+  return input.sipMf + input.savings + input.stash
 }
 
 export function calcTotalOut(input: MonthlySplitCalculatorInput): number {
