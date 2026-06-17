@@ -42,6 +42,9 @@ export class CardsService {
       dto.statementCycleDay ?? current.statementCycleDay,
       dto.creditLimit ?? current.creditLimit,
       (dto.status as CardStatus | undefined) ?? current.status,
+      dto.fullCardNumber ?? current.fullCardNumber,
+      dto.cvv ?? current.cvv,
+      dto.expiryDate ?? current.expiryDate,
     )
     return this.repository.update(updated)
   }

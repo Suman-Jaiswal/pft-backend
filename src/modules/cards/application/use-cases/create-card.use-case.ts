@@ -21,6 +21,9 @@ const schema = z.object({
   network: z.string().optional(),
   statementCycleDay: z.number().int().min(1).max(31).optional(),
   creditLimit: z.number().min(0).optional(),
+  fullCardNumber: z.string().optional(),
+  cvv: z.string().optional(),
+  expiryDate: z.string().optional(),
 })
 
 @Injectable()
@@ -46,6 +49,9 @@ export class CreateCardUseCase implements UseCase<CreateCardCommand, CardEntity>
       cmd.statementCycleDay ?? null,
       cmd.creditLimit ?? null,
       CardStatus.ACTIVE,
+      cmd.fullCardNumber ?? null,
+      cmd.cvv ?? null,
+      cmd.expiryDate ?? null,
     )
     return this.repository.create(entity)
   }

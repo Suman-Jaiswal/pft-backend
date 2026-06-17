@@ -93,21 +93,24 @@ model Loan {
 }
 
 model Card {
-  id                String   @id @default(cuid())
-  tenantId          String
-  cardKey           String
-  issuer            String
-  last4             String?
-  network           String?
-  statementCycleDay Int?
-  creditLimit       Decimal?
-  status            String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  createdBy         String
-  updatedBy         String
-  statements        Statement[]
-  transactions      Transaction[]
+  id                   String   @id @default(cuid())
+  tenantId             String
+  cardKey              String
+  issuer               String
+  last4                String?
+  network              String?
+  statementCycleDay    Int?
+  creditLimit          Decimal?
+  fullCardNumberEnc    String?
+  cvvEnc               String?
+  expiryDate           String?
+  status               String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  createdBy            String
+  updatedBy            String
+  statements           Statement[]
+  transactions         Transaction[]
 
   @@unique([tenantId, cardKey], map: "uq_cards_tenant_card_key")
 }

@@ -10,6 +10,16 @@ import {
 } from '@/modules/cards/domain/repositories/card.repository'
 import { CardKey } from '@/modules/cards/domain/value-objects/card-key.vo'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
+import { decryptField, encryptField } from '@/shared/crypto/field-cipher'
+
+function decryptOrNull(value: string | null): string | null {
+  if (!value) return null
+  try {
+    return decryptField(value)
+  } catch {
+    return null
+  }
+}
 
 function toEntity(row: Card): CardEntity {
   return new CardEntity(
@@ -26,6 +36,9 @@ function toEntity(row: Card): CardEntity {
     row.statementCycleDay,
     row.creditLimit ? Number(row.creditLimit) : null,
     row.status as CardStatus,
+    decryptOrNull(row.fullCardNumberEnc),
+    decryptOrNull(row.cvvEnc),
+    row.expiryDate,
   )
 }
 
@@ -44,6 +57,9 @@ export class PrismaCardRepository implements ICardRepository {
         network: card.network,
         statementCycleDay: card.statementCycleDay,
         creditLimit: card.creditLimit ?? undefined,
+        fullCardNumberEnc: card.fullCardNumber ? encryptField(card.fullCardNumber) : undefined,
+        cvvEnc: card.cvv ? encryptField(card.cvv) : undefined,
+        expiryDate: card.expiryDate ?? undefined,
         status: card.status,
         createdBy: card.createdBy,
         updatedBy: card.updatedBy,
@@ -85,6 +101,9 @@ export class PrismaCardRepository implements ICardRepository {
         network: card.network,
         statementCycleDay: card.statementCycleDay,
         creditLimit: card.creditLimit ?? undefined,
+        fullCardNumberEnc: card.fullCardNumber ? encryptField(card.fullCardNumber) : undefined,
+        cvvEnc: card.cvv ? encryptField(card.cvv) : undefined,
+        expiryDate: card.expiryDate ?? undefined,
         status: card.status,
         updatedBy: card.updatedBy,
       },

@@ -23,6 +23,9 @@ export class CardEntity extends BaseEntity {
     public readonly statementCycleDay: number | null,
     public readonly creditLimit: number | null,
     public readonly status: CardStatus,
+    public readonly fullCardNumber: string | null = null,
+    public readonly cvv: string | null = null,
+    public readonly expiryDate: string | null = null,
   ) {
     super(id, tenantId, createdAt, updatedAt, createdBy, updatedBy)
     if (statementCycleDay !== null && (statementCycleDay < 1 || statementCycleDay > 31)) {

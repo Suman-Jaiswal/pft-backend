@@ -7,4 +7,7 @@ export interface CreateCardCommand {
   network?: string
   statementCycleDay?: number
   creditLimit?: number
+  fullCardNumber?: string
+  cvv?: string
+  expiryDate?: string
 }

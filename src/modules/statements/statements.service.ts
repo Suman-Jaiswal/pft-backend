@@ -32,7 +32,7 @@ export class StatementsService {
       dto.minimumAmountDue,
       dto.totalAmountDue,
       (dto.status as StatementStatus | undefined) ?? StatementStatus.DUE,
-      dto.statementSyncMonth ?? null,
+      dto.statementSyncMonth ?? dto.statementMonth,
     )
     return this.repository.upsert(entity)
   }
