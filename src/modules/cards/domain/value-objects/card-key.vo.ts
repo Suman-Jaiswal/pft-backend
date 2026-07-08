@@ -16,4 +16,12 @@ export class CardKey {
     if (!normalized) throw new DomainError('Card key is required', 'INVALID_CARD_KEY')
     return new CardKey(normalized)
   }
+
+  toJSON(): string {
+    return this.value
+  }
+
+  toString(): string {
+    return this.value
+  }
 }
