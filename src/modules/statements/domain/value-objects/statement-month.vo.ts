@@ -10,4 +10,12 @@ export class StatementMonth {
     }
     return new StatementMonth(normalized)
   }
+
+  toJSON(): string {
+    return this.value
+  }
+
+  toString(): string {
+    return this.value
+  }
 }

@@ -12,4 +12,14 @@ describe('CardKey', () => {
   it('throws on empty key', () => {
     expect(() => CardKey.create('')).toThrow()
   })
+
+  it('serializes to plain string via toJSON()', () => {
+    const key = CardKey.create('SLICE_XX6447')
+    expect(key.toJSON()).toBe('SLICE_XX6447')
+    expect(JSON.stringify({ cardKey: key })).toBe('{"cardKey":"SLICE_XX6447"}')
+  })
+
+  it('toString returns the value', () => {
+    expect(`${CardKey.create('hdfc_9335')}`).toBe('HDFC_XX9335')
+  })
 })

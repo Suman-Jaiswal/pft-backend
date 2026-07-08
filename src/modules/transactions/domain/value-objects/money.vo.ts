@@ -7,4 +7,12 @@ export class Money {
     if (!Number.isFinite(raw)) throw new DomainError('Amount must be finite', 'INVALID_AMOUNT')
     return new Money(raw)
   }
+
+  toJSON(): number {
+    return this.value
+  }
+
+  toString(): string {
+    return String(this.value)
+  }
 }
