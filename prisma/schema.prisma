@@ -242,6 +242,7 @@ model PftSetting {
   defaultStocks         Decimal  @default(0)
   defaultFd             Decimal  @default(0)
   defaultSavings        Decimal  @default(0)
+  defaultStash          Decimal  @default(0)
   defaultBills          Decimal  @default(0)
   defaultBasicExpenses  Decimal  @default(0)
   defaultOtherExpenses  Decimal  @default(0)
