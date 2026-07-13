@@ -18,6 +18,7 @@ export class PftSettingEntity extends BaseEntity {
     public readonly defaultStocks: number,
     public readonly defaultFd: number,
     public readonly defaultSavings: number,
+    public readonly defaultStash: number,
     public readonly defaultBills: number,
     public readonly defaultBasicExpenses: number,
     public readonly defaultOtherExpenses: number,
