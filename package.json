@@ -12,7 +12,7 @@
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "prisma:studio": "prisma studio --url postgresql://postgres:postgres@localhost:55432/pft_backend",
+    "prisma:studio": "prisma studio --port 5555",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",

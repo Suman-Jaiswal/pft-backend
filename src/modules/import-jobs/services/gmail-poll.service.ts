@@ -3,6 +3,7 @@ import { gmail_v1, google } from 'googleapis'
 import { appConfig } from '@/config/app.config'
 import { PolledMessage } from '@/modules/import-jobs/types/import-contracts'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
+import { isGoogleAuthError } from '@/modules/import-jobs/services/import-auth-error.util'
 
 type GmailCredential = {
   refreshToken: string
@@ -178,6 +179,10 @@ export class GmailPollService {
         return await fn()
       } catch (error) {
         lastError = error
+        if (isGoogleAuthError(error)) {
+          this.logger.warn('Google auth error (invalid_grant / token revoked) — skipping retries')
+          throw error
+        }
         if (i < attempts - 1) {
           const delayMs = 250 * Math.pow(2, i)
           await new Promise((resolve) => setTimeout(resolve, delayMs))

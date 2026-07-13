@@ -3,11 +3,15 @@ import { ImportErrorCode } from '@/modules/import-jobs/types/import-contracts'
 const REAUTH_REQUIRED_CODE: ImportErrorCode = 'REAUTH_REQUIRED'
 
 export function resolveImportErrorCode(error: unknown): ImportErrorCode | undefined {
-  if (isReauthRequiredError(error)) return REAUTH_REQUIRED_CODE
+  if (isGoogleAuthError(error)) return REAUTH_REQUIRED_CODE
   return undefined
 }
 
-function isReauthRequiredError(error: unknown): boolean {
+/**
+ * Detects Google OAuth errors that indicate the refresh token is expired or
+ * revoked (e.g. `invalid_grant`). These are non-recoverable via retry.
+ */
+export function isGoogleAuthError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
 
   const maybeError = error as {
