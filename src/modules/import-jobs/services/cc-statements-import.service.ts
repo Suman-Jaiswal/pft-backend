@@ -183,6 +183,82 @@ export class CcStatementsImportService {
       this.logger.log(
         `[SOURCE_START] card=${source.cardKey} label="${source.labelName}" flow=${source.flow} dryRun=${dryRun}`,
       )
+
+      const card = await this.findCardWithCycleDay(tenantId, source.cardKey)
+      if (!card) {
+        this.logger.error(`[SOURCE_FAIL] card=${source.cardKey} reason=card_not_found`)
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 0,
+          skipped: 0,
+          failed: 1,
+          summary: `Card not found: ${source.cardKey}`,
+          error: `Card not found: ${source.cardKey}`,
+        }
+      }
+
+      const now = new Date()
+      const cycleDay = card.statementCycleDay
+      if (!cycleDay || cycleDay < 1 || cycleDay > 31) {
+        this.logger.warn(`[SOURCE_SKIP] card=${source.cardKey} reason=no_cycle_day_configured`)
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 0,
+          skipped: 1,
+          failed: 0,
+          summary: 'No statement cycle day configured for card',
+        }
+      }
+
+      if (now.getDate() < cycleDay) {
+        this.logger.log(
+          `[SOURCE_SKIP] card=${source.cardKey} reason=cycle_day_not_reached today=${now.getDate()} cycleDay=${cycleDay}`,
+        )
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 0,
+          skipped: 1,
+          failed: 0,
+          summary: `Cycle day ${cycleDay} not reached yet (today=${now.getDate()})`,
+        }
+      }
+
+      const intendedMonth = this.formatMonth(now)
+      this.logger.log(
+        `[SOURCE_INTENT] card=${source.cardKey} cycleDay=${cycleDay} intendedMonth=${intendedMonth}`,
+      )
+
+      const existingForIntended = await this.prisma.statement.findFirst({
+        where: { tenantId, cardId: card.id, statementMonth: intendedMonth },
+        select: { id: true, status: true, statementMonth: true },
+      })
+
+      if (existingForIntended && /^paid$/i.test((existingForIntended.status ?? '').trim())) {
+        this.logger.log(
+          `[SOURCE_SKIP] card=${source.cardKey} reason=already_paid statementMonth=${intendedMonth} statementId=${existingForIntended.id}`,
+        )
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 0,
+          skipped: 1,
+          failed: 0,
+          summary: `Statement for ${intendedMonth} already marked PAID`,
+          statementMonth: intendedMonth,
+        }
+      }
+
       const message = await this.fetchLatestMessageByLabel(tenantId, source.labelName)
       if (!message) {
         this.logger.warn(`[SOURCE_SKIP] card=${source.cardKey} label="${source.labelName}" reason=no_message`)
@@ -209,22 +285,6 @@ export class CcStatementsImportService {
         body: message.body,
         payload: message.payload,
       })
-
-      const card = await this.findCardForSource(tenantId, source.cardKey)
-      if (!card) {
-        this.logger.error(`[SOURCE_FAIL] card=${source.cardKey} reason=card_not_found`)
-        return {
-          cardKey: source.cardKey,
-          labelName: source.labelName,
-          flow: source.flow,
-          inserted: 0,
-          updated: 0,
-          skipped: 0,
-          failed: 1,
-          summary: `Card not found: ${source.cardKey}`,
-          error: `Card not found: ${source.cardKey}`,
-        }
-      }
 
       const parsed = source.flow === 'direct'
         ? await this.parseDirectStatement(source.cardKey, source.labelName, message.subject, message.body)
@@ -253,8 +313,26 @@ export class CcStatementsImportService {
           cardId: card.id,
           statementMonth: parsed.statementMonth,
         },
-        select: { id: true, statementMonth: true },
+        select: { id: true, status: true, statementMonth: true },
       })
+
+      if (existing && /^paid$/i.test((existing.status ?? '').trim())) {
+        this.logger.log(
+          `[SOURCE_SKIP] card=${source.cardKey} reason=parsed_month_already_paid statementMonth=${parsed.statementMonth}`,
+        )
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 0,
+          skipped: 1,
+          failed: 0,
+          summary: `Statement for ${parsed.statementMonth} already marked PAID`,
+          statementMonth: parsed.statementMonth,
+        }
+      }
+
       const dueMonth = this.formatMonth(new Date(parsed.dueDate))
       const existingLegacyShifted = existing
         ? null
@@ -264,13 +342,32 @@ export class CcStatementsImportService {
               cardId: card.id,
               statementMonth: dueMonth,
             },
-            select: { id: true, statementMonth: true },
+            select: { id: true, status: true, statementMonth: true },
           })
+
+      if (existingLegacyShifted && /^paid$/i.test((existingLegacyShifted.status ?? '').trim())) {
+        this.logger.log(
+          `[SOURCE_SKIP] card=${source.cardKey} reason=legacy_month_already_paid statementMonth=${dueMonth}`,
+        )
+        return {
+          cardKey: source.cardKey,
+          labelName: source.labelName,
+          flow: source.flow,
+          inserted: 0,
+          updated: 0,
+          skipped: 1,
+          failed: 0,
+          summary: `Statement for ${dueMonth} (legacy) already marked PAID`,
+          statementMonth: dueMonth,
+        }
+      }
+
       const targetRow = existing ?? existingLegacyShifted
       this.logVerbose(source.cardKey, 'SOURCE_DB_DECISION', {
         existingCurrentMonth: existing,
         existingLegacyShifted,
         targetRow,
+        intendedMonth,
       })
 
       if (dryRun) {
@@ -358,9 +455,25 @@ export class CcStatementsImportService {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
           const existingNow = await this.prisma.statement.findFirst({
             where: { tenantId, cardId: card.id, statementMonth: parsed.statementMonth },
-            select: { id: true },
+            select: { id: true, status: true },
           })
           if (existingNow) {
+            if (/^paid$/i.test((existingNow.status ?? '').trim())) {
+              this.logger.log(
+                `[SOURCE_SKIP] card=${source.cardKey} reason=conflict_row_paid statementMonth=${parsed.statementMonth}`,
+              )
+              return {
+                cardKey: source.cardKey,
+                labelName: source.labelName,
+                flow: source.flow,
+                inserted: 0,
+                updated: 0,
+                skipped: 1,
+                failed: 0,
+                summary: `Statement for ${parsed.statementMonth} already marked PAID (conflict recovery)`,
+                statementMonth: parsed.statementMonth,
+              }
+            }
             const row = await this.prisma.statement.update({
               where: { id: existingNow.id },
               data: {
@@ -873,13 +986,13 @@ export class CcStatementsImportService {
     return Number.isFinite(num) ? num : null
   }
 
-  private async findCardForSource(
+  private async findCardWithCycleDay(
     tenantId: string,
     sourceCardKey: string,
-  ): Promise<{ id: string; cardKey: string } | null> {
+  ): Promise<{ id: string; cardKey: string; statementCycleDay: number | null } | null> {
     const exact = await this.prisma.card.findFirst({
       where: { tenantId, cardKey: { equals: sourceCardKey, mode: 'insensitive' } },
-      select: { id: true, cardKey: true },
+      select: { id: true, cardKey: true, statementCycleDay: true },
     })
     if (exact) return exact
 
@@ -887,7 +1000,7 @@ export class CcStatementsImportService {
     if (!sourceDigits) return null
     const cards = await this.prisma.card.findMany({
       where: { tenantId },
-      select: { id: true, cardKey: true },
+      select: { id: true, cardKey: true, statementCycleDay: true },
     })
     return cards.find((c) => this.last4(c.cardKey) === sourceDigits) ?? null
   }
