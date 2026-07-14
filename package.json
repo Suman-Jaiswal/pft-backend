@@ -21,7 +21,8 @@
     "monthly-split:check": "ts-node -r tsconfig-paths/register scripts/monthly-split-change-check.ts",
     "migrate:firestore": "ts-node -r tsconfig-paths/register scripts/migrate-firestore.ts",
     "reconcile:migration": "ts-node -r tsconfig-paths/register scripts/reconcile-migration.ts",
-    "gmail:token": "ts-node -r tsconfig-paths/register scripts/get-gmail-refresh-token.ts"
+    "gmail:token": "ts-node -r tsconfig-paths/register scripts/get-gmail-refresh-token.ts",
+    "backfill:email-trace": "ts-node -r tsconfig-paths/register scripts/backfill-email-trace.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.2",

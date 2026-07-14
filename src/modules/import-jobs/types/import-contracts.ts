@@ -52,6 +52,8 @@ export interface PersistableTransaction {
   importedAt: Date
   referenceNo: string | null
   externalId: string | null
+  emailSubject: string | null
+  emailBody: string | null
 }
 
 export interface BankImportStats {

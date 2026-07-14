@@ -1,0 +1,62 @@
+{
+    "data": {
+      "totalCycleSpend": 20700,
+      "totalStatementDues": 45200,
+      "totalUnsettled": 3800,
+  
+      "cards": [
+        {
+          "cardId": "clxyz123...",
+          "cardKey": "HDFC_REGALIA",
+  
+          "cycleSpend": 12500,
+          "cycleStart": "2026-06-17",
+          "cycleEnd": "2026-07-16",
+          "txnCount": 42,
+  
+          "statementTotal": 22000,
+          "minDue": 1100,
+          "status": "unpaid",
+          "dueDate": "2026-07-25",
+          "statementSyncMonth": "2026-06",
+  
+          "statementSyncPending": false,
+          "missingLatestStatement": false,
+          "canManualUpdate": false,
+  
+          "unsettledAmount": 0,
+  
+          "trend": {
+            "pct": -43.2,
+            "direction": "down"
+          }
+        },
+        {
+          "cardId": "clxyz456...",
+          "cardKey": "ICICI_AMAZON",
+  
+          "cycleSpend": 8200,
+          "cycleStart": "2026-06-22",
+          "cycleEnd": "2026-07-16",
+          "txnCount": 28,
+  
+          "statementTotal": 23200,
+          "minDue": 1200,
+          "status": "paid",
+          "dueDate": "2026-07-20",
+          "statementSyncMonth": "2026-06",
+  
+          "statementSyncPending": true,
+          "missingLatestStatement": false,
+          "canManualUpdate": true,
+  
+          "unsettledAmount": 3800,
+  
+          "trend": {
+            "pct": null,
+            "direction": "none"
+          }
+        }
+      ]
+    }
+  }

@@ -139,27 +139,29 @@ model Statement {
 }
 
 model Transaction {
-  id          String   @id @default(cuid())
-  tenantId    String
-  cardId      String
-  statementId String?
-  txnDate     DateTime
-  amount      Decimal
-  merchant    String
-  channel     String
+  id           String   @id @default(cuid())
+  tenantId     String
+  cardId       String
+  statementId  String?
+  txnDate      DateTime
+  amount       Decimal
+  merchant     String
+  channel      String
   txnTimestamp DateTime?
-  bankKey     String?
-  emailId     String?
-  dedupeKey   String?
-  importedAt  DateTime?
-  referenceNo String?
-  externalId  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  createdBy   String
-  updatedBy   String
-  card        Card     @relation(fields: [cardId], references: [id])
-  statement   Statement? @relation(fields: [statementId], references: [id])
+  bankKey      String?
+  emailId      String?
+  dedupeKey    String?
+  importedAt   DateTime?
+  referenceNo  String?
+  externalId   String?
+  emailSubject String?
+  emailBody    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdBy    String
+  updatedBy    String
+  card         Card     @relation(fields: [cardId], references: [id])
+  statement    Statement? @relation(fields: [statementId], references: [id])
 
   @@unique([tenantId, externalId], map: "uq_transactions_tenant_external_id")
   @@unique([tenantId, dedupeKey], map: "uq_transactions_tenant_dedupe_key")

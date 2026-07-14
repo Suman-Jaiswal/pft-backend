@@ -455,6 +455,8 @@ export class CcTxnImportService {
           importedAt: row.importedAt,
           referenceNo: row.referenceNo ?? undefined,
           externalId: row.externalId ?? undefined,
+          emailSubject: row.emailSubject ?? undefined,
+          emailBody: row.emailBody ?? undefined,
           createdBy: IMPORT_ACTOR,
           updatedBy: IMPORT_ACTOR,
         },
@@ -524,7 +526,7 @@ export class CcTxnImportService {
         return { kind: 'inserted' }
       }
 
-      const write = await this.upsertTransaction(this.toPersistable(parsed, dedupeKey))
+      const write = await this.upsertTransaction(this.toPersistable(parsed, dedupeKey, message))
       if (write.kind === 'inserted') {
         if (retryFailureId) {
           await this.importFailureService.markResolved({ id: retryFailureId, resolvedTxnId: write.txnId ?? null })
@@ -569,7 +571,7 @@ export class CcTxnImportService {
     }
   }
 
-  private toPersistable(parsed: ParsedBankTransaction, dedupeKey: string): PersistableTransaction {
+  private toPersistable(parsed: ParsedBankTransaction, dedupeKey: string, message: PolledMessage): PersistableTransaction {
     return {
       txnDate: new Date(parsed.txnDate),
       txnTimestamp: parsed.txnTimestamp ? new Date(parsed.txnTimestamp) : null,
@@ -583,6 +585,8 @@ export class CcTxnImportService {
       importedAt: new Date(parsed.importedAt),
       referenceNo: parsed.referenceNo ?? null,
       externalId: null,
+      emailSubject: message.subject || null,
+      emailBody: message.body || null,
     }
   }
 
