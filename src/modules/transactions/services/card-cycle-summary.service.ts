@@ -102,7 +102,6 @@ export class CardCycleSummaryService {
       if (!latestByCardId.has(statement.cardId)) latestByCardId.set(statement.cardId, statement)
     }
 
-    const currentMonth = this.formatMonth(now)
     const rows: CardCycleSummaryRow[] = []
 
     for (const card of cards) {
