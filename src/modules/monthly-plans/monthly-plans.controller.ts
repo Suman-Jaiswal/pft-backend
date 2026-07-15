@@ -8,6 +8,7 @@ import { ok } from '@/shared/presentation/api-response'
 import { MonthlyPlansService } from '@/modules/monthly-plans/monthly-plans.service'
 import { CurrentMonthlyPlanQueryDto } from '@/modules/monthly-plans/dto/current-monthly-plan.query.dto'
 import { UpsertMonthlyPlanDto } from '@/modules/monthly-plans/dto/upsert-monthly-plan.dto'
+import { DashboardOutlookQueryDto } from '@/modules/monthly-plans/dto/dashboard-outlook.query.dto'
 
 type ReqUser = { user: { sub: string; tenantId: string } }
 
@@ -30,6 +31,20 @@ export class MonthlyPlansController {
   @ApiOperation({ summary: 'Get current monthly plan [AUTH: JWT]' })
   async current(@Req() req: ReqUser, @Query() query: CurrentMonthlyPlanQueryDto) {
     return ok(await this.service.getCurrent(req.user.tenantId, Number(query.month), Number(query.year)))
+  }
+
+  @Get('dashboard-summary')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Get dashboard summary [AUTH: JWT]' })
+  async dashboardSummary(@Req() req: ReqUser) {
+    return ok(await this.service.getDashboardSummary(req.user.tenantId))
+  }
+
+  @Get('outlook')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Get dashboard outlook plans [AUTH: JWT]' })
+  async outlook(@Req() req: ReqUser, @Query() query: DashboardOutlookQueryDto) {
+    return ok(await this.service.getOutlook(req.user.tenantId, query.period))
   }
 
   @Post()
