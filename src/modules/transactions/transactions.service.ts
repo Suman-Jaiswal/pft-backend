@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import {
   ITransactionRepository,
   TRANSACTION_REPOSITORY,
+  TransactionListResult,
 } from '@/modules/transactions/domain/repositories/transaction.repository'
 import { TransactionEntity } from '@/modules/transactions/domain/entities/transaction.entity'
 import { Money } from '@/modules/transactions/domain/value-objects/money.vo'
@@ -52,7 +53,10 @@ export class TransactionsService {
     cardId?: string,
     fromDate?: string,
     toDate?: string,
-  ) {
+    q?: string,
+    cursor?: string,
+    limit?: number,
+  ): Promise<TransactionListResult> {
     return this.repository.list({
       tenantId,
       page,
@@ -60,6 +64,9 @@ export class TransactionsService {
       cardId,
       fromDate: fromDate ? new Date(fromDate) : undefined,
       toDate: toDate ? new Date(toDate) : undefined,
+      q,
+      cursor,
+      limit,
     })
   }
 

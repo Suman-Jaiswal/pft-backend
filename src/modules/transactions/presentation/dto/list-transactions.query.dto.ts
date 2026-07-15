@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsDateString, IsInt, IsOptional, IsString, Min } from 'class-validator'
+import { IsDateString, IsInt, IsOptional, IsString, Max, Min } from 'class-validator'
 
 export class ListTransactionsQueryDto {
   @ApiPropertyOptional({ description: '1-based page number', default: 1 })
@@ -16,6 +16,19 @@ export class ListTransactionsQueryDto {
   @IsInt()
   @Min(1)
   pageSize?: number
+
+  @ApiPropertyOptional({ description: 'Cursor page size', default: 20, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number
+
+  @ApiPropertyOptional({ description: 'Opaque pagination cursor token' })
+  @IsOptional()
+  @IsString()
+  cursor?: string
 
   @ApiPropertyOptional({ description: 'Filter by card id' })
   @IsOptional()
@@ -41,4 +54,9 @@ export class ListTransactionsQueryDto {
   @IsOptional()
   @IsDateString()
   toDate?: string
+
+  @ApiPropertyOptional({ description: 'Case-insensitive merchant search text' })
+  @IsOptional()
+  @IsString()
+  q?: string
 }

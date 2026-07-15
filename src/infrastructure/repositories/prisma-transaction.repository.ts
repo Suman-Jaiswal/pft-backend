@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common'
-import { Transaction } from '@prisma/client'
+import { Prisma, Transaction } from '@prisma/client'
 import {
   ITransactionRepository,
   TransactionQuery,
+  TransactionListResult,
 } from '@/modules/transactions/domain/repositories/transaction.repository'
 import { TransactionEntity } from '@/modules/transactions/domain/entities/transaction.entity'
 import { Money } from '@/modules/transactions/domain/value-objects/money.vo'
@@ -66,26 +67,109 @@ export class PrismaTransactionRepository implements ITransactionRepository {
     return row ? toEntity(row) : null
   }
 
-  async list(query: TransactionQuery): Promise<{ items: TransactionEntity[]; total: number }> {
-    const where = {
-      tenantId: query.tenantId,
-      cardId: query.cardId,
-      txnDate: {
-        gte: query.fromDate,
-        lte: query.toDate,
-      },
+  async list(query: TransactionQuery): Promise<TransactionListResult> {
+    const where = this.buildWhere(query)
+    if (query.cursor) {
+      return this.listWithCursor(query, where)
     }
+    return this.listWithOffset(query, where)
+  }
+
+  private async listWithOffset(
+    query: TransactionQuery,
+    where: Prisma.TransactionWhereInput,
+  ): Promise<TransactionListResult> {
     const skip = (query.page - 1) * query.pageSize
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.transaction.findMany({
         where,
-        orderBy: { txnDate: 'desc' },
+        orderBy: [{ txnDate: 'desc' }, { id: 'desc' }],
         skip,
         take: query.pageSize,
       }),
       this.prisma.transaction.count({ where }),
     ])
     return { items: rows.map(toEntity), total }
+  }
+
+  private async listWithCursor(
+    query: TransactionQuery,
+    baseWhere: Prisma.TransactionWhereInput,
+  ): Promise<TransactionListResult> {
+    const limit = query.limit ?? 20
+    const cursor = this.decodeCursor(query.cursor)
+    const where: Prisma.TransactionWhereInput = cursor
+      ? {
+          AND: [
+            baseWhere,
+            {
+              OR: [
+                { txnTimestamp: { lt: cursor.ts } },
+                { txnTimestamp: cursor.ts, id: { lt: cursor.id } },
+              ],
+            },
+          ],
+        }
+      : baseWhere
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: [{ txnTimestamp: 'desc' }, { id: 'desc' }],
+        take: limit + 1,
+      }),
+      this.prisma.transaction.count({ where: baseWhere }),
+    ])
+
+    const hasMore = rows.length > limit
+    const items = hasMore ? rows.slice(0, limit) : rows
+    const last = items[items.length - 1]
+
+    return {
+      items: items.map(toEntity),
+      total,
+      hasMore,
+      nextCursor: hasMore && last
+        ? this.encodeCursor(last.txnTimestamp ?? last.txnDate, last.id)
+        : null,
+    }
+  }
+
+  private buildWhere(query: TransactionQuery): Prisma.TransactionWhereInput {
+    const where: Prisma.TransactionWhereInput = {
+      tenantId: query.tenantId,
+    }
+    if (query.cardId) where.cardId = query.cardId
+    if (query.fromDate || query.toDate) {
+      where.txnDate = {
+        ...(query.fromDate ? { gte: query.fromDate } : {}),
+        ...(query.toDate ? { lte: query.toDate } : {}),
+      }
+    }
+    const search = query.q?.trim()
+    if (search) {
+      where.merchant = { contains: search, mode: 'insensitive' }
+    }
+    return where
+  }
+
+  private encodeCursor(ts: Date, id: string): string {
+    const payload = JSON.stringify({ ts: ts.toISOString(), id })
+    return Buffer.from(payload, 'utf8').toString('base64url')
+  }
+
+  private decodeCursor(raw?: string): { ts: Date; id: string } | null {
+    if (!raw) return null
+    try {
+      const text = Buffer.from(raw, 'base64url').toString('utf8')
+      const parsed = JSON.parse(text) as { ts?: string; id?: string }
+      if (!parsed?.ts || !parsed?.id) return null
+      const ts = new Date(parsed.ts)
+      if (Number.isNaN(ts.getTime())) return null
+      return { ts, id: parsed.id }
+    } catch {
+      return null
+    }
   }
 
   async update(txn: TransactionEntity): Promise<TransactionEntity> {
