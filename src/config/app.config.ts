@@ -27,6 +27,7 @@ export const appConfig = {
   statementLabelIcici9003:
     process.env.STATEMENT_LABEL_ICICI_9003 ?? 'CC Statements/icici_xx9003_statements',
   statementLabelCsb: process.env.STATEMENT_LABEL_CSB ?? 'CC Statements/csb_xx4345_statements',
+  statementLabelSlice: process.env.STATEMENT_LABEL_SLICE ?? 'CC Statements/slice_xx6447_statements',
   // Legacy flow passed null password by default for non-CSB labels.
   statementPdfPasswordSbi: process.env.STATEMENT_PDF_PASSWORD_SBI ?? '',
   statementPdfPasswordHdfc: process.env.STATEMENT_PDF_PASSWORD_HDFC ?? 'SUMA0709',
