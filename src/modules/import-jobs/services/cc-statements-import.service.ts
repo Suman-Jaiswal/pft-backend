@@ -58,6 +58,11 @@ const STATEMENT_SOURCES: StatementSource[] = [
     flow: 'cloudPdf',
     pdfPassword: appConfig.statementPdfPasswordCsb || undefined,
   },
+  {
+    cardKey: 'SLICE_XX6447',
+    labelName: appConfig.statementLabelSlice,
+    flow: 'direct',
+  },
 ]
 
 export function buildStatementPdfPasswordCandidates(
@@ -216,23 +221,9 @@ export class CcStatementsImportService {
         }
       }
 
-      if (now.getDate() < cycleDay) {
-        this.logger.log(
-          `[SOURCE_SKIP] card=${source.cardKey} reason=cycle_day_not_reached today=${now.getDate()} cycleDay=${cycleDay}`,
-        )
-        return {
-          cardKey: source.cardKey,
-          labelName: source.labelName,
-          flow: source.flow,
-          inserted: 0,
-          updated: 0,
-          skipped: 1,
-          failed: 0,
-          summary: `Cycle day ${cycleDay} not reached yet (today=${now.getDate()})`,
-        }
-      }
-
-      const intendedMonth = this.formatMonth(now)
+      const intendedMonth = now.getDate() >= cycleDay
+        ? this.formatMonth(now)
+        : this.formatPreviousMonth(now)
       this.logger.log(
         `[SOURCE_INTENT] card=${source.cardKey} cycleDay=${cycleDay} intendedMonth=${intendedMonth}`,
       )
@@ -537,26 +528,18 @@ export class CcStatementsImportService {
     const list = await gmail.users.messages.list({
       userId: appConfig.importGmailUser || 'me',
       q: query,
-      maxResults: 10,
+      maxResults: 1,
     })
     const ids = (list.data.messages ?? []).map((m) => m.id).filter((id): id is string => Boolean(id))
     this.logger.log(`[GMAIL_LIST_RESULT] label="${labelName}" messageCount=${ids.length}`)
     if (!ids.length) return null
 
-    const messages = await Promise.all(
-      ids.map((id) =>
-        gmail.users.messages.get({
-          userId: appConfig.importGmailUser || 'me',
-          id,
-          format: 'full',
-        }),
-      ),
-    )
-    const sorted = messages
-      .map((m) => m.data)
-      .filter((m) => Boolean(m.id))
-      .sort((a, b) => Number(b.internalDate ?? '0') - Number(a.internalDate ?? '0'))
-    const latest = sorted[0]
+    const msg = await gmail.users.messages.get({
+      userId: appConfig.importGmailUser || 'me',
+      id: ids[0],
+      format: 'full',
+    })
+    const latest = msg.data
     if (!latest?.id) return null
     return {
       id: latest.id,
@@ -1053,6 +1036,11 @@ export class CcStatementsImportService {
     const y = date.getFullYear()
     const m = String(date.getMonth() + 1).padStart(2, '0')
     return `${y}-${m}`
+  }
+
+  private formatPreviousMonth(date: Date): string {
+    const prev = new Date(date.getFullYear(), date.getMonth() - 1, 1)
+    return this.formatMonth(prev)
   }
 
   private async getGmailClient(tenantId: string) {
