@@ -1,9 +1,20 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
+import { decryptField } from '@/shared/crypto/field-cipher'
 
 type CardCycleSummaryRow = {
   cardId: string
   cardKey: string
+  issuer: string
+  last4: string | null
+  network: string | null
+  statementCycleDay: number | null
+  creditLimit: number | null
+  cardStatus: string
+  fullCardNumber: string | null
+  cvv: string | null
+  expiryDate: string | null
+  variant: string | null
   latestStatementId: string | null
   latestStatementMonth: string | null
   cycleSpend: number
@@ -48,7 +59,16 @@ export class CardCycleSummaryService {
       select: {
         id: true,
         cardKey: true,
+        issuer: true,
+        last4: true,
+        network: true,
         statementCycleDay: true,
+        creditLimit: true,
+        status: true,
+        fullCardNumberEnc: true,
+        cvvEnc: true,
+        expiryDate: true,
+        variant: true,
       },
       orderBy: { cardKey: 'asc' },
     })
@@ -107,6 +127,16 @@ export class CardCycleSummaryService {
       rows.push({
         cardId: card.id,
         cardKey: card.cardKey,
+        issuer: card.issuer,
+        last4: card.last4,
+        network: card.network,
+        statementCycleDay: card.statementCycleDay,
+        creditLimit: card.creditLimit == null ? null : Number(card.creditLimit),
+        cardStatus: card.status,
+        fullCardNumber: this.decryptOrNull(card.fullCardNumberEnc),
+        cvv: this.decryptOrNull(card.cvvEnc),
+        expiryDate: card.expiryDate,
+        variant: card.variant,
         latestStatementId: latest?.id ?? null,
         latestStatementMonth: latest?.statementMonth ?? null,
         cycleSpend: settled.sumAmount,
@@ -204,5 +234,14 @@ export class CardCycleSummaryService {
     if (pct > 0) return 'up'
     if (pct < 0) return 'down'
     return 'flat'
+  }
+
+  private decryptOrNull(value: string | null): string | null {
+    if (!value) return null
+    try {
+      return decryptField(value)
+    } catch {
+      return null
+    }
   }
 }

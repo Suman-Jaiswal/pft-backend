@@ -170,10 +170,10 @@ export class SettingsService {
     return { setting, appliedDeduction }
   }
 
-  async listBaselines(tenantId: string, periodKey: string): Promise<PftBaselineRow[]> {
+  async listBaselines(tenantId: string, periodKey?: string): Promise<PftBaselineRow[]> {
     const rows = await this.prisma.pftBaseline.findMany({
-      where: { tenantId, periodKey },
-      orderBy: { version: 'asc' },
+      where: periodKey ? { tenantId, periodKey } : { tenantId },
+      orderBy: [{ periodKey: 'asc' }, { version: 'asc' }],
     })
     return rows.map((row) => ({
       id: row.id,
@@ -194,18 +194,20 @@ export class SettingsService {
     payload: { periodKey: string; source: string; lockedBy: string; metrics: Record<string, unknown> },
   ): Promise<PftBaselineRow> {
     const baselineAmount = this.parseBaselineAmount(payload.metrics.baselineAmount)
-    const aggregate = await this.prisma.pftBaseline.aggregate({
+    const existing = await this.prisma.pftBaseline.findFirst({
       where: { tenantId, periodKey: payload.periodKey },
-      _max: { version: true },
+      select: { id: true },
     })
-    const nextVersion = (aggregate._max.version ?? 0) + 1
+    if (existing) {
+      throw new BadRequestException(`Baseline already exists for period ${payload.periodKey}`)
+    }
     const now = new Date()
     const row = await this.prisma.pftBaseline.create({
       data: {
         id: `pbl_${randomUUID()}`,
         tenantId,
         periodKey: payload.periodKey,
-        version: nextVersion,
+        version: 1,
         source: payload.source,
         baselineAmount,
         lockedAt: now,
