@@ -69,7 +69,7 @@ export class PrismaTransactionRepository implements ITransactionRepository {
 
   async list(query: TransactionQuery): Promise<TransactionListResult> {
     const where = this.buildWhere(query)
-    if (query.cursor) {
+    if (query.limit != null || query.cursor) {
       return this.listWithCursor(query, where)
     }
     return this.listWithOffset(query, where)

@@ -4,6 +4,8 @@ import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 type CardCycleSummaryRow = {
   cardId: string
   cardKey: string
+  latestStatementId: string | null
+  latestStatementMonth: string | null
   cycleSpend: number
   cycleStart: string
   cycleEnd: string
@@ -105,6 +107,8 @@ export class CardCycleSummaryService {
       rows.push({
         cardId: card.id,
         cardKey: card.cardKey,
+        latestStatementId: latest?.id ?? null,
+        latestStatementMonth: latest?.statementMonth ?? null,
         cycleSpend: settled.sumAmount,
         cycleStart: this.formatDate(cycleWindow.start),
         cycleEnd: this.formatDate(new Date(cycleWindow.endExclusive.getTime() - 86_400_000)),
