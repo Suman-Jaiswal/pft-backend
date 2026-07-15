@@ -20,6 +20,7 @@ import { CreateTransactionDto } from '@/modules/transactions/presentation/dto/cr
 import { ListTransactionsQueryDto } from '@/modules/transactions/presentation/dto/list-transactions.query.dto'
 import { UpdateTransactionDto } from '@/modules/transactions/presentation/dto/update-transaction.dto'
 import { ok } from '@/shared/presentation/api-response'
+import { CardCycleSummaryService } from '@/modules/transactions/services/card-cycle-summary.service'
 
 type ReqUser = { user: { sub: string; tenantId: string } }
 
@@ -28,7 +29,10 @@ type ReqUser = { user: { sub: string; tenantId: string } }
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller({ path: 'transactions', version: '1' })
 export class TransactionsController {
-  constructor(private readonly transactionsService: TransactionsService) {}
+  constructor(
+    private readonly transactionsService: TransactionsService,
+    private readonly cardCycleSummaryService: CardCycleSummaryService,
+  ) {}
 
   @Post()
   @Roles(Role.ADMIN, Role.USER)
@@ -51,8 +55,18 @@ export class TransactionsController {
         query.cardId,
         query.fromDate,
         query.toDate,
+        query.q,
+        query.cursor,
+        query.limit,
       ),
     )
+  }
+
+  @Get('card-cycle-summary')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Get card cycle summary [AUTH: JWT]' })
+  async cardCycleSummary(@Req() req: ReqUser) {
+    return ok(await this.cardCycleSummaryService.getSummary(req.user.tenantId))
   }
 
   @Get(':id')
