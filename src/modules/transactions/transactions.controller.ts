@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -19,8 +20,10 @@ import { TransactionsService } from '@/modules/transactions/transactions.service
 import { CreateTransactionDto } from '@/modules/transactions/presentation/dto/create-transaction.dto'
 import { ListTransactionsQueryDto } from '@/modules/transactions/presentation/dto/list-transactions.query.dto'
 import { UpdateTransactionDto } from '@/modules/transactions/presentation/dto/update-transaction.dto'
+import { UpsertTransactionAdjustmentDto } from '@/modules/transactions/presentation/dto/upsert-transaction-adjustment.dto'
 import { ok } from '@/shared/presentation/api-response'
 import { CardCycleSummaryService } from '@/modules/transactions/services/card-cycle-summary.service'
+import { TransactionAdjustmentService } from '@/modules/transactions/services/transaction-adjustment.service'
 
 type ReqUser = { user: { sub: string; tenantId: string } }
 
@@ -32,6 +35,7 @@ export class TransactionsController {
   constructor(
     private readonly transactionsService: TransactionsService,
     private readonly cardCycleSummaryService: CardCycleSummaryService,
+    private readonly adjustmentService: TransactionAdjustmentService,
   ) {}
 
   @Post()
@@ -67,6 +71,25 @@ export class TransactionsController {
   @ApiOperation({ summary: 'Get card cycle summary [AUTH: JWT]' })
   async cardCycleSummary(@Req() req: ReqUser) {
     return ok(await this.cardCycleSummaryService.getSummary(req.user.tenantId))
+  }
+
+  @Put(':id/adjustment')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Upsert transaction adjustment [AUTH: JWT]' })
+  async upsertAdjustment(
+    @Req() req: ReqUser,
+    @Param('id') id: string,
+    @Body() dto: UpsertTransactionAdjustmentDto,
+  ) {
+    return ok(await this.adjustmentService.upsert(req.user.tenantId, req.user.sub, id, dto))
+  }
+
+  @Delete(':id/adjustment')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Delete transaction adjustment [AUTH: JWT]' })
+  async deleteAdjustment(@Req() req: ReqUser, @Param('id') id: string) {
+    await this.adjustmentService.remove(req.user.tenantId, id)
+    return ok({ id })
   }
 
   @Get(':id')
