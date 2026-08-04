@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { decryptField } from '@/shared/crypto/field-cipher'
+import {
+  type AdjustmentInput,
+  effectiveForCalendarMonth,
+  effectiveForCycleTxn,
+  formatMonthKey,
+  roundMoney,
+} from '@/modules/transactions/domain/effective-amount'
 
 type CardCycleSummaryRow = {
   cardId: string
@@ -18,6 +25,8 @@ type CardCycleSummaryRow = {
   latestStatementId: string | null
   latestStatementMonth: string | null
   cycleSpend: number
+  effectiveCycleSpend: number
+  adjustedAmount: number
   cycleStart: string
   cycleEnd: string
   txnCount: number
@@ -38,6 +47,8 @@ type CardCycleSummaryRow = {
 
 export type CardCycleSummaryResponse = {
   totalCycleSpend: number
+  totalEffectiveCycleSpend: number
+  calendarMonthEffectiveSpend: number
   totalStatementDues: number
   totalUnsettled: number
   cards: CardCycleSummaryRow[]
@@ -76,6 +87,8 @@ export class CardCycleSummaryService {
     if (!cards.length) {
       return {
         totalCycleSpend: 0,
+        totalEffectiveCycleSpend: 0,
+        calendarMonthEffectiveSpend: 0,
         totalStatementDues: 0,
         totalUnsettled: 0,
         cards: [],
@@ -111,6 +124,14 @@ export class CardCycleSummaryService {
       const statementSyncPending = this.isStatementSyncPending(cycleDay, statementSyncMonth, now)
       const cycleWindow = this.getCycleWindow(now, cycleDay)
       const settled = await this.aggregateCardSpend(card.id, tenantId, cycleWindow)
+      const cycleTransactions = await this.findTransactionsWithAdjustments(card.id, tenantId, cycleWindow)
+      const effectiveCycleSpend = roundMoney(
+        cycleTransactions.reduce(
+          (sum, transaction) =>
+            sum + effectiveForCycleTxn(Number(transaction.amount), this.mapAdjustment(transaction.adjustment)),
+          0,
+        ),
+      )
       const widenedWindow = statementSyncPending ? this.getPreviousMonthWindow(now, cycleDay) : cycleWindow
       const widened = statementSyncPending
         ? await this.aggregateCardSpend(card.id, tenantId, widenedWindow)
@@ -139,6 +160,8 @@ export class CardCycleSummaryService {
         latestStatementId: latest?.id ?? null,
         latestStatementMonth: latest?.statementMonth ?? null,
         cycleSpend: settled.sumAmount,
+        effectiveCycleSpend,
+        adjustedAmount: roundMoney(Math.max(0, settled.sumAmount - effectiveCycleSpend)),
         cycleStart: this.formatDate(cycleWindow.start),
         cycleEnd: this.formatDate(new Date(cycleWindow.endExclusive.getTime() - 86_400_000)),
         txnCount: settled.txnCount,
@@ -159,15 +182,107 @@ export class CardCycleSummaryService {
     }
 
     const totalCycleSpend = rows.reduce((sum, row) => sum + row.cycleSpend, 0)
+    const totalEffectiveCycleSpend = roundMoney(rows.reduce((sum, row) => sum + row.effectiveCycleSpend, 0))
+    const calendarMonthEffectiveSpend = await this.getCalendarMonthEffectiveSpend(
+      tenantId,
+      cards.map((card) => card.id),
+      now,
+    )
     const totalStatementDues = rows.reduce((sum, row) => sum + row.statementTotal, 0)
     const totalUnsettled = rows.reduce((sum, row) => sum + row.unsettledAmount, 0)
 
     return {
       totalCycleSpend,
+      totalEffectiveCycleSpend,
+      calendarMonthEffectiveSpend,
       totalStatementDues,
       totalUnsettled,
       cards: rows,
     }
+  }
+
+  private async findTransactionsWithAdjustments(cardId: string, tenantId: string, window: BillingWindow) {
+    return this.prisma.transaction.findMany({
+      where: {
+        tenantId,
+        cardId,
+        txnDate: {
+          gte: window.start,
+          lt: window.endExclusive,
+        },
+      },
+      select: {
+        amount: true,
+        txnDate: true,
+        adjustment: {
+          select: {
+            type: true,
+            personalShare: true,
+            amortizeMonths: true,
+          },
+        },
+      },
+    })
+  }
+
+  private async getCalendarMonthEffectiveSpend(tenantId: string, cardIds: string[], now: Date): Promise<number> {
+    const monthKey = formatMonthKey(now)
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const monthEndExclusive = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    const amortizeWindowStart = new Date(now.getFullYear(), now.getMonth() - 60, 1)
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        tenantId,
+        cardId: { in: cardIds },
+        txnDate: {
+          gte: amortizeWindowStart,
+          lt: monthEndExclusive,
+        },
+      },
+      select: {
+        amount: true,
+        txnDate: true,
+        adjustment: {
+          select: {
+            type: true,
+            personalShare: true,
+            amortizeMonths: true,
+          },
+        },
+      },
+    })
+
+    return roundMoney(
+      transactions.reduce((sum, transaction) => {
+        const transactionDate = new Date(transaction.txnDate)
+        if (!transaction.adjustment && transactionDate < monthStart) return sum
+        return (
+          sum +
+          effectiveForCalendarMonth(
+            Number(transaction.amount),
+            transactionDate,
+            monthKey,
+            this.mapAdjustment(transaction.adjustment),
+          )
+        )
+      }, 0),
+    )
+  }
+
+  private mapAdjustment(adjustment: {
+    type: string
+    personalShare: unknown
+    amortizeMonths: number | null
+  } | null): AdjustmentInput | null {
+    if (!adjustment) return null
+    if (adjustment.type === 'SPLIT') {
+      return { type: 'SPLIT', personalShare: Number(adjustment.personalShare ?? 0) }
+    }
+    if (adjustment.type === 'EXCLUDE') return { type: 'EXCLUDE' }
+    if (adjustment.type === 'AMORTIZE') {
+      return { type: 'AMORTIZE', amortizeMonths: adjustment.amortizeMonths }
+    }
+    return null
   }
 
   private async aggregateCardSpend(cardId: string, tenantId: string, window: BillingWindow): Promise<{
