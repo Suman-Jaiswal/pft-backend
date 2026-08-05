@@ -1,4 +1,5 @@
 import { TransactionEntity } from '@/modules/transactions/domain/entities/transaction.entity'
+import { AdjustmentType } from '@/modules/transactions/domain/effective-amount'
 
 export interface TransactionQuery {
   tenantId: string
@@ -13,10 +14,21 @@ export interface TransactionQuery {
 }
 
 export interface TransactionListResult {
-  items: TransactionEntity[]
+  items: TransactionListItem[]
   total: number
   hasMore?: boolean
   nextCursor?: string | null
+}
+
+export type TransactionListItem = Omit<TransactionEntity, 'amount'> & {
+  amount: number
+  adjustment: {
+    type: AdjustmentType
+    personalShare: number | null
+    amortizeMonths: number | null
+    monthlyAmount: number | null
+    note: string | null
+  } | null
 }
 
 export interface ITransactionRepository {

@@ -3,11 +3,17 @@ import { Prisma, Transaction } from '@prisma/client'
 import {
   ITransactionRepository,
   TransactionQuery,
+  TransactionListItem,
   TransactionListResult,
 } from '@/modules/transactions/domain/repositories/transaction.repository'
 import { TransactionEntity } from '@/modules/transactions/domain/entities/transaction.entity'
 import { Money } from '@/modules/transactions/domain/value-objects/money.vo'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
+import { AdjustmentType, roundMoney } from '@/modules/transactions/domain/effective-amount'
+
+type TransactionWithAdjustment = Prisma.TransactionGetPayload<{
+  include: { adjustment: true }
+}>
 
 function toEntity(row: Transaction): TransactionEntity {
   return new TransactionEntity(
@@ -31,6 +37,28 @@ function toEntity(row: Transaction): TransactionEntity {
     row.referenceNo,
     row.externalId,
   )
+}
+
+function toListItem(row: TransactionWithAdjustment): TransactionListItem {
+  const entity = toEntity(row)
+  const adjustment = row.adjustment
+
+  return {
+    ...entity,
+    amount: Number(row.amount),
+    adjustment: adjustment
+      ? {
+          type: adjustment.type as AdjustmentType,
+          personalShare: adjustment.personalShare == null ? null : Number(adjustment.personalShare),
+          amortizeMonths: adjustment.amortizeMonths,
+          monthlyAmount:
+            adjustment.type === 'AMORTIZE' && adjustment.amortizeMonths
+              ? roundMoney(Number(row.amount) / adjustment.amortizeMonths)
+              : null,
+          note: adjustment.note,
+        }
+      : null,
+  }
 }
 
 @Injectable()
@@ -86,10 +114,11 @@ export class PrismaTransactionRepository implements ITransactionRepository {
         orderBy: [{ txnDate: 'desc' }, { id: 'desc' }],
         skip,
         take: query.pageSize,
+        include: { adjustment: true },
       }),
       this.prisma.transaction.count({ where }),
     ])
-    return { items: rows.map(toEntity), total }
+    return { items: rows.map(toListItem), total }
   }
 
   private async listWithCursor(
@@ -117,6 +146,7 @@ export class PrismaTransactionRepository implements ITransactionRepository {
         where,
         orderBy: [{ txnTimestamp: 'desc' }, { id: 'desc' }],
         take: limit + 1,
+        include: { adjustment: true },
       }),
       this.prisma.transaction.count({ where: baseWhere }),
     ])
@@ -126,7 +156,7 @@ export class PrismaTransactionRepository implements ITransactionRepository {
     const last = items[items.length - 1]
 
     return {
-      items: items.map(toEntity),
+      items: items.map(toListItem),
       total,
       hasMore,
       nextCursor: hasMore && last
