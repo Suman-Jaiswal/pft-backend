@@ -12,6 +12,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_VERSION: "20"
   ARCHIVE_NAME: pft-backend-release.tgz
+  NODE_OPTIONS: "--max-old-space-size=1536"
 
 jobs:
   self-hosted-deploy:
