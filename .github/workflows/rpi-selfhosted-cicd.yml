@@ -14,12 +14,11 @@ env:
   ARCHIVE_NAME: pft-backend-release.tgz
 
 jobs:
-  ci-build:
-    name: Build, test, and package on hosted runner
-    runs-on: ubuntu-latest
+  self-hosted-deploy:
+    name: Build, test, and deploy on Raspberry Pi 5 self-hosted runner
+    runs-on: [self-hosted, linux, arm64]
+    if: github.event_name != 'pull_request'
     env:
-      NODE_VERSION: ${{ env.NODE_VERSION }}
-      ARCHIVE_NAME: ${{ env.ARCHIVE_NAME }}
       PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
     steps:
       - name: Checkout
@@ -41,24 +40,13 @@ jobs:
         run: npm run monthly-split:check
 
       - name: Lint
-        env:
-          NODE_OPTIONS: "--max-old-space-size=1024"
-        run: |
-          npm run lint
+        run: npm run lint
 
       - name: Unit tests
         run: npm run test
 
       - name: Build
         run: npm run build
-
-      - name: Optional: Run DB migrations
-        if: ${{ env.PROD_DATABASE_URL != '' }}
-        env:
-          DATABASE_URL: ${{ env.PROD_DATABASE_URL }}
-        run: |
-          echo "Running Prisma migrations against PROD database"
-          npm run prisma:migrate:deploy
 
       - name: Create deployment archive
         run: |
@@ -71,35 +59,10 @@ jobs:
             --exclude='*.log' \
             .
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-archive
-          path: ${{ runner.temp }}/${{ env.ARCHIVE_NAME }}
-
-  self-hosted-deploy:
-    name: Deploy on Raspberry Pi self-hosted runner
-    needs: [ci-build]
-    runs-on: [self-hosted, linux, x64]
-    if: github.event_name != 'pull_request'
-    env:
-      PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: release-archive
-          path: /tmp
-
       - name: "Checkpoint: Verify artifacts"
         run: |
-          echo "Looking for archive under /tmp"
-          ls -lh /tmp || true
-          # The downloaded artifact is placed under /tmp/release-archive/
-          ls -lh /tmp/release-archive || true
+          echo "Archive created: ${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
+          ls -lh "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
 
       - name: Pre-deploy checks and cleanup
         env:
@@ -123,6 +86,14 @@ jobs:
             echo "$BINDING_CONTAINER_IDS" | xargs -r docker rm -f || true
           fi
 
+      - name: "Optional: Run DB migrations"
+        if: ${{ env.PROD_DATABASE_URL != '' }}
+        env:
+          DATABASE_URL: ${{ env.PROD_DATABASE_URL }}
+        run: |
+          echo "Running Prisma migrations against PROD database"
+          npm run prisma:migrate:deploy
+
       - name: Deploy locally on Raspberry Pi
         env:
           APP_DIR: ${{ secrets.RPI_APP_DIR }}
@@ -130,20 +101,9 @@ jobs:
           RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
           RPI_ENV_FILE_CONTENT: ${{ secrets.RPI_ENV_FILE_CONTENT }}
           RELEASE_ID: ${{ github.sha }}
-          ARCHIVE_NAME: ${{ env.ARCHIVE_NAME }}
         run: |
-          set -euo pipefail
-          # The uploaded artifact is available under /tmp/release-archive/${ARCHIVE_NAME}
-          ARCHIVE_SRC="/tmp/release-archive/${ARCHIVE_NAME}"
-          if [ ! -f "${ARCHIVE_SRC}" ]; then
-            echo "Archive not found at ${ARCHIVE_SRC}; listing /tmp"
-            ls -lah /tmp || true
-            exit 1
-          fi
-
           mkdir -p /tmp
-          cp "${ARCHIVE_SRC}" /tmp/
-
+          cp "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}" /tmp/
           APP_DIR="${APP_DIR:-/opt/pft-backend}" \
           RPI_CONTAINER_NAME="${RPI_CONTAINER_NAME:-pft-backend-app}" \
           RPI_APP_PORT="${RPI_APP_PORT:-4000}" \
