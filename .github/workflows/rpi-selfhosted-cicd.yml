@@ -41,7 +41,9 @@ jobs:
         run: npm run monthly-split:check
 
       - name: Lint
-        run: npm run lint
+        run: npx eslint "{src,test}/**/*.ts" --no-cache
+        env:
+          NODE_OPTIONS: "--max-old-space-size=1536"
 
       - name: Unit tests
         run: npm run test
