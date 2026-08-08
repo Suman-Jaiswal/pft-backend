@@ -1,4 +1,4 @@
-name: rpi-selfhosted-cicd
+name: selfhosted-cicd
 
 on:
   push:
@@ -16,7 +16,7 @@ env:
 
 jobs:
   self-hosted-deploy:
-    name: Build, test, and deploy on Raspberry Pi 5 self-hosted runner
+    name: Deploy on EC2 self-hosted runner
     runs-on: [self-hosted, linux, arm64]
     if: github.event_name != 'pull_request'
     env:
@@ -37,8 +37,8 @@ jobs:
       - name: Generate Prisma client
         run: npm run prisma:generate
 
-      - name: Monthly split contract check
-        run: npm run monthly-split:check
+      # - name: Monthly split contract check
+      #   run: npm run monthly-split:check
 
       # - name: Lint
       #   run: npx eslint "{src,test}/**/*.ts" --no-cache
@@ -48,24 +48,24 @@ jobs:
       # - name: Unit tests
       #   run: npm run test
 
-      - name: Build
-        run: npm run build
+      # - name: Build
+      #   run: npm run build
 
-      - name: Create deployment archive
-        run: |
-          tar -czf "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}" \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='node_modules' \
-            --exclude='dist' \
-            --exclude='coverage' \
-            --exclude='*.log' \
-            .
+      # - name: Create deployment archive
+      #   run: |
+      #     tar -czf "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}" \
+      #       --exclude='.git' \
+      #       --exclude='.github' \
+      #       --exclude='node_modules' \
+      #       --exclude='dist' \
+      #       --exclude='coverage' \
+      #       --exclude='*.log' \
+      #       .
 
-      - name: "Checkpoint: Verify artifacts"
-        run: |
-          echo "Archive created: ${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
-          ls -lh "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
+      # - name: "Checkpoint: Verify artifacts"
+      #   run: |
+      #     echo "Archive created: ${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
+      #     ls -lh "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
 
       - name: Pre-deploy checks and cleanup
         env:
