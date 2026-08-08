@@ -27,4 +27,5 @@ RUN npm prune --omit=dev
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "if [ -f dist/src/main.js ]; then node dist/src/main.js; else node dist/main.js; fi"]
+# Use npm start so tsconfig-paths/register is loaded and path aliases like "@/..." resolve at runtime
+CMD ["npm", "run", "start"]
