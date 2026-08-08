@@ -1,22 +1,17 @@
-FROM node:20-bullseye-slim AS base
+FROM node:20-alpine AS builder
 WORKDIR /app
-
-COPY package.json package-lock.json* ./
+COPY package*.json ./
 RUN npm ci
-
-COPY tsconfig.json tsconfig.build.json nest-cli.json ./
-COPY prisma ./prisma
-COPY src ./src
-COPY scripts ./scripts
-COPY test ./test
-
-RUN npm run prisma:generate
-
-# Explicitly pass memory configurations directly to the typescript compiler
-ENV NODE_OPTIONS="--max-old-space-size=1536"
+COPY . .
+RUN npx prisma generate
 RUN npm run build
 
-RUN npm run build
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
-EXPOSE 3000
-CMD ["npm", "run", "start"]
+EXPOSE 4000
+CMD ["node", "dist/main.js"]
