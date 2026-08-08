@@ -13,10 +13,11 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  # --- JOB 1: RUNS ON GITHUB BUILD SERVERS ---
+  # --- JOB 1: RUNS NATIVELY & ULTRA-FAST ON GITHUB ARM64 SERVERS ---
   build-and-migrate:
     name: Build Image & Migrate Database
-    runs-on: ubuntu-latest
+    # HIGH-SPEED FIX: Uses GitHub's native ARM64 cloud runner (No more emulation lag!)
+    runs-on: ubuntu-latest-arm64
     if: github.event_name != 'pull_request'
     steps:
       - name: Checkout Code
@@ -63,15 +64,14 @@ jobs:
         with:
           context: .
           push: true
-          # FIXED: Forces the GitHub build node to compile an ARM64 binary
+          # Built natively for your EC2 architecture without QEMU lag
           platforms: linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-
-  # --- JOB 2: RUNS ON YOUR SELF-HOSTED EC2 RUNNER ---
+  # --- JOB 2: EC2 ONLY PULLS AND RUNS (ZERO RESOURCE STRAIN) ---
   deploy-to-ec2:
     name: Deploy to EC2
     needs: build-and-migrate  
@@ -100,7 +100,7 @@ jobs:
           # 2. Log into the container registry from EC2
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${REGISTRY} -u ${{ github.actor }} --password-stdin
           
-          # 3. Pull the precise image version built moments ago on GitHub
+          # 3. Pull the pre-compiled native ARM64 image directly
           echo "Pulling image from production path: ${FULL_IMAGE_PATH}"
           docker pull "${FULL_IMAGE_PATH}"
           
@@ -148,14 +148,11 @@ jobs:
           set -euo pipefail
           PORT="${RPI_APP_PORT:-4000}"
           CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
-          
-          # TARGETED FIX: Configured route path strictly to your API layout
           HEALTH_URL="http://127.0.0.1:${PORT}/api/v1/health"
           
           echo "Waiting for health endpoint: ${HEALTH_URL}"
           status=1
           
-          # Loop 6 times, waiting 5 seconds between checks (30 seconds total)
           for i in $(seq 1 6); do
             if curl -sf "${HEALTH_URL}" > /dev/null; then
               echo "Health check passed! The application is running smoothly."
