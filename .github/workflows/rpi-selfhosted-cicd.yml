@@ -51,21 +51,21 @@ jobs:
       # - name: Build
       #   run: npm run build
 
-      # - name: Create deployment archive
-      #   run: |
-      #     tar -czf "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}" \
-      #       --exclude='.git' \
-      #       --exclude='.github' \
-      #       --exclude='node_modules' \
-      #       --exclude='dist' \
-      #       --exclude='coverage' \
-      #       --exclude='*.log' \
-      #       .
+      - name: Create deployment archive
+        run: |
+          tar -czf "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}" \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='coverage' \
+            --exclude='*.log' \
+            .
 
-      # - name: "Checkpoint: Verify artifacts"
-      #   run: |
-      #     echo "Archive created: ${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
-      #     ls -lh "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
+      - name: "Checkpoint: Verify artifacts"
+        run: |
+          echo "Archive created: ${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
+          ls -lh "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}"
 
       - name: Pre-deploy checks and cleanup
         env:
