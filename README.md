@@ -2,7 +2,7 @@
 
 NestJS + TypeScript backend template with SOLID architecture for cards, statements, and transactions.
 
-## Stack
+## Stack-
 
 - NestJS (modular monolith)
 - Prisma + PostgreSQL
