@@ -11,8 +11,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  # Converts repository name to lowercase safely to meet Docker naming standards
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   # --- JOB 1: RUNS ON GITHUB BUILD SERVERS ---
@@ -55,34 +53,30 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
           tags: |
             type=sha,format=short
             type=raw,value=latest
 
-      # Building on GitHub servers utilizes up to 16GB RAM dynamically
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          # FIXED: Changed 'id.meta' to 'steps.meta'
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-
   # --- JOB 2: RUNS ON YOUR SELF-HOSTED EC2 RUNNER ---
   deploy-to-ec2:
     name: Deploy to EC2
-    needs: build-and-migrate  # Runs only after the build and migration succeed
+    needs: build-and-migrate  
     runs-on: [self-hosted, linux, arm64]
     steps:
       - name: Clean and Run Docker Container
         env:
           REGISTRY: ${{ env.REGISTRY }}
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
           RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
           RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
           RPI_ENV_FILE_CONTENT: ${{ secrets.RPI_ENV_FILE_CONTENT }}
@@ -90,18 +84,21 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Setup variables
+          # 1. Setup variables and explicitly force lowercase values
           CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
           PORT="${RPI_APP_PORT:-4000}"
           APP_DIR="${RPI_APP_DIR:-/opt/pft-backend}"
           SHORT_SHA="${GITHUB_SHA::7}"
-          FULL_IMAGE_PATH="${REGISTRY}/${IMAGE_NAME,,}:${SHORT_SHA}"
+          
+          RAW_REPO_NAME="${{ github.repository }}"
+          LOWERCASE_REPO_NAME=$(echo "$RAW_REPO_NAME" | tr '[:upper:]' '[:lower:]')
+          FULL_IMAGE_PATH="${REGISTRY}/${LOWERCASE_REPO_NAME}:sha-${SHORT_SHA}"
           
           # 2. Log into the container registry from EC2
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${REGISTRY} -u ${{ github.actor }} --password-stdin
           
           # 3. Pull the precise image version built moments ago on GitHub
-          echo "Pulling image: ${FULL_IMAGE_PATH}"
+          echo "Pulling image from production path: ${FULL_IMAGE_PATH}"
           docker pull "${FULL_IMAGE_PATH}"
           
           # 4. Handle persistent application config directories
@@ -115,13 +112,13 @@ jobs:
           
           # 5. Stop and clean existing containers gracefully
           if docker ps -a --format '{{.Names}}' | grep -Fxq "$CONTAINER"; then
-            echo "Stopping old container container..."
+            echo "Stopping old container..."
             docker rm -f "$CONTAINER" || true
           fi
           
-          # Clear out ghost containers sitting on the exact deployment port
           BINDING_CONTAINER_IDS=$(docker ps --format '{{.ID}} {{.Ports}}' | awk -v port=":${PORT}" '$0 ~ port {print $1}') || true
           if [ -n "${BINDING_CONTAINER_IDS:-}" ]; then
+            echo "Clearing out conflicting container IDs: ${BINDING_CONTAINER_IDS}"
             echo "$BINDING_CONTAINER_IDS" | xargs -r docker rm -f || true
           fi
           
@@ -139,3 +136,38 @@ jobs:
           # 7. Post-deployment system sanitation
           docker image prune -af || true
           echo "Deployment successful!"
+
+      - name: Post-Deploy Health Check
+        env:
+          RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
+          RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${RPI_APP_PORT:-4000}"
+          CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
+          
+          # TARGETED FIX: Configured route path strictly to your API layout
+          HEALTH_URL="http://127.0.0.1:${PORT}/api/v1/health"
+          
+          echo "Waiting for health endpoint: ${HEALTH_URL}"
+          status=1
+          
+          # Loop 6 times, waiting 5 seconds between checks (30 seconds total)
+          for i in $(seq 1 6); do
+            if curl -sf "${HEALTH_URL}" > /dev/null; then
+              echo "Health check passed! The application is running smoothly."
+              status=0
+              break
+            else
+              echo "Attempt ${i}: Endpoint not ready yet. Retrying in 5s..."
+              sleep 5
+            fi
+          done
+          
+          if [ "${status}" -ne 0 ]; then
+            echo "ERROR: Health check timed out! Outputting container crash log streams:"
+            echo "----------------------------------------"
+            docker logs --tail 100 "${CONTAINER}" || true
+            echo "----------------------------------------"
+            exit 1
+          fi
