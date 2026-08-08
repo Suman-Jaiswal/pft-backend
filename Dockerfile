@@ -25,5 +25,5 @@ RUN npm prune --omit=dev
 # Expose the internal port mapped dynamically by Railway architectures
 EXPOSE 4000
 
-# Start the application using a fallback check for nested structures (like dist/src/main.js)
-CMD ["sh", "-c", "if [ -f dist/src/main.js ]; then node dist/src/main.js; else node dist/main.js; fi"]
+# Start the application via the npm start script which registers tsconfig-paths so path aliases like "@/..." work at runtime
+CMD ["npm", "run", "start"]
