@@ -1,29 +1,30 @@
-FROM node:20-alpine
+FROM node:20-bullseye-slim
 
-# Set production variables early
 ENV NODE_ENV=production
-
 WORKDIR /app
 
-# Copy dependency configuration files
+# Ensure runtime libs and CA certs are present
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates openssl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy dependency config and prisma schema
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Install all dependencies (Railway keeps devDependencies intact for the build script)
+# Install dev deps for build (Railway keeps devDependencies for build scripts)
 RUN npm ci --include=dev
 
-# Copy all application files
+# Copy app sources
 COPY . .
 
-# Run the database client generation and application compilation steps
+# Generate Prisma client & build app
 RUN npx prisma generate
 RUN npm run build
 
-# Prune development packages post-build to reduce deployment size
+# Remove dev deps to slim down the image
 RUN npm prune --omit=dev
 
-# Expose the internal port mapped dynamically by Railway architectures
 EXPOSE 4000
 
-# Start the application via the npm start script which registers tsconfig-paths so path aliases like "@/..." work at runtime
-CMD ["npm", "run", "start"]
+CMD ["sh", "-c", "if [ -f dist/src/main.js ]; then node dist/src/main.js; else node dist/main.js; fi"]
