@@ -105,12 +105,14 @@ jobs:
           RPI_ENV_FILE_CONTENT: ${{ secrets.RPI_ENV_FILE_CONTENT }}
           RELEASE_ID: ${{ github.sha }}
         run: |
-          mkdir -p /tmp
-          cp "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}" /tmp/
+          sudo mkdir -p /tmp/pft-release/
+          sudo cp "${{ runner.temp }}/${{ env.ARCHIVE_NAME }}" /tmp/pft-release/
+          sudo chmod -R 777 /tmp/pft-release/
+          
           APP_DIR="${APP_DIR:-/opt/pft-backend}" \
           RPI_CONTAINER_NAME="${RPI_CONTAINER_NAME:-pft-backend-app}" \
           RPI_APP_PORT="${RPI_APP_PORT:-4000}" \
-          ARCHIVE_PATH="/tmp/${ARCHIVE_NAME}" \
+          ARCHIVE_PATH="/tmp/pft-release/${ARCHIVE_NAME}" \
           RELEASE_ID="${RELEASE_ID::12}" \
           RPI_ENV_FILE_CONTENT="${RPI_ENV_FILE_CONTENT:-}" \
           scripts/deploy-rpi.sh
