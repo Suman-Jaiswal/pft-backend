@@ -1,0 +1,139 @@
+name: Production CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write  # Crucial for uploading images to GHCR
+
+env:
+  REGISTRY: ghcr.io
+  # Converts repository name to lowercase safely to meet Docker naming standards
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # --- JOB 1: RUNS ON GITHUB BUILD SERVERS ---
+  build-and-migrate:
+    name: Build Image & Migrate Database
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run prisma:generate
+
+      - name: Run Production Database Migrations
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: npm run prisma:migrate:deploy
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest
+
+      # Building on GitHub servers utilizes up to 16GB RAM dynamically
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ id.meta.outputs.tags }}
+          labels: ${{ id.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # --- JOB 2: RUNS ON YOUR SELF-HOSTED EC2 RUNNER ---
+  deploy-to-ec2:
+    name: Deploy to EC2
+    needs: build-and-migrate  # Runs only after the build and migration succeed
+    runs-on: [self-hosted, linux, arm64]
+    steps:
+      - name: Clean and Run Docker Container
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
+          RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
+          RPI_ENV_FILE_CONTENT: ${{ secrets.RPI_ENV_FILE_CONTENT }}
+          RPI_APP_DIR: ${{ secrets.RPI_APP_DIR }}
+        run: |
+          set -euo pipefail
+          
+          # 1. Setup variables
+          CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
+          PORT="${RPI_APP_PORT:-4000}"
+          APP_DIR="${RPI_APP_DIR:-/opt/pft-backend}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          FULL_IMAGE_PATH="${REGISTRY}/${IMAGE_NAME,,}:${SHORT_SHA}"
+          
+          # 2. Log into the container registry from EC2
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${REGISTRY} -u ${{ github.actor }} --password-stdin
+          
+          # 3. Pull the precise image version built moments ago on GitHub
+          echo "Pulling image: ${FULL_IMAGE_PATH}"
+          docker pull "${FULL_IMAGE_PATH}"
+          
+          # 4. Handle persistent application config directories
+          sudo mkdir -p "${APP_DIR}/shared"
+          sudo chown -R "$USER:$USER" "${APP_DIR}"
+          
+          if [[ -n "${RPI_ENV_FILE_CONTENT:-}" ]]; then
+            printf '%s\n' "${RPI_ENV_FILE_CONTENT}" > "${APP_DIR}/shared/.env"
+            chmod 600 "${APP_DIR}/shared/.env"
+          fi
+          
+          # 5. Stop and clean existing containers gracefully
+          if docker ps -a --format '{{.Names}}' | grep -Fxq "$CONTAINER"; then
+            echo "Stopping old container container..."
+            docker rm -f "$CONTAINER" || true
+          fi
+          
+          # Clear out ghost containers sitting on the exact deployment port
+          BINDING_CONTAINER_IDS=$(docker ps --format '{{.ID}} {{.Ports}}' | awk -v port=":${PORT}" '$0 ~ port {print $1}') || true
+          if [ -n "${BINDING_CONTAINER_IDS:-}" ]; then
+            echo "$BINDING_CONTAINER_IDS" | xargs -r docker rm -f || true
+          fi
+          
+          # 6. Run the production container instantly
+          echo "Spinning up application container..."
+          docker run -d \
+            --name "${CONTAINER}" \
+            --restart unless-stopped \
+            --env-file "${APP_DIR}/shared/.env" \
+            -e "PORT=${PORT}" \
+            -e "RELEASE_ID=${SHORT_SHA}" \
+            -p "${PORT}:4000" \
+            "${FULL_IMAGE_PATH}"
+            
+          # 7. Post-deployment system sanitation
+          docker image prune -af || true
+          echo "Deployment successful!"
