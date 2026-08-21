@@ -47,7 +47,12 @@ export class DetailedStatementsSyncService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async runSync(options: { tenantId: string; cardKeys?: string[]; dryRun?: boolean }) {
+  async runSync(options: {
+    tenantId: string
+    cardKeys?: string[]
+    dryRun?: boolean
+    bypassCardLookup?: boolean
+  }) {
     const startedAt = new Date()
     const selected = this.filterSources(options.cardKeys)
     const clientId = appConfig.googleClientId?.trim()
@@ -65,6 +70,7 @@ export class DetailedStatementsSyncService {
     oauth2Client.setCredentials({ refresh_token: refreshToken })
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client })
 
+    const bypassCardLookup = options.bypassCardLookup ?? false
     const cards = await this.prisma.card.findMany({
       where: { tenantId: options.tenantId },
       select: { id: true, cardKey: true },
@@ -73,7 +79,21 @@ export class DetailedStatementsSyncService {
 
     const perCard: SyncResult[] = []
     for (const source of selected) {
-      const card = cardByKey.get(source.cardKey.toUpperCase())
+      let card = cardByKey.get(source.cardKey.toUpperCase())
+      if (!card && bypassCardLookup) {
+        card = await this.prisma.card.create({
+          data: {
+            tenantId: options.tenantId,
+            cardKey: source.cardKey,
+            issuer: this.deriveIssuer(source.cardKey),
+            status: 'ACTIVE',
+            createdBy: 'import-job',
+            updatedBy: 'import-job',
+          },
+          select: { id: true, cardKey: true },
+        })
+        cardByKey.set(source.cardKey.toUpperCase(), card)
+      }
       if (!card) {
         perCard.push({
           cardKey: source.cardKey,
@@ -213,6 +233,9 @@ export class DetailedStatementsSyncService {
 
         for (const pdf of attachments) {
           try {
+            this.logger.log(
+              `[SYNC_PDF_STEP] stage=download_start card=${source.cardKey} label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`,
+            )
             const attachmentResp = await gmail.users.messages.attachments.get({
               userId: appConfig.importGmailUser || 'me',
               messageId,
@@ -220,13 +243,28 @@ export class DetailedStatementsSyncService {
             })
             const rawData = attachmentResp.data.data
             if (!rawData) continue
+            this.logger.log(
+              `[SYNC_PDF_STEP] stage=download_done card=${source.cardKey} label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`,
+            )
+            this.logger.log(
+              `[SYNC_PDF_STEP] stage=decrypt_start card=${source.cardKey} label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`,
+            )
             const decrypted = await this.decryptAndExtractPdfText(
               this.decodeBase64UrlToBuffer(rawData),
               source.labelName,
               subject || body,
               source.pdfPassword,
             )
+            this.logger.log(
+              `[SYNC_PDF_STEP] stage=decrypt_done card=${source.cardKey} label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`,
+            )
+            this.logger.log(
+              `[SYNC_PDF_STEP] stage=parse_start card=${source.cardKey} label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`,
+            )
             const parsed = await this.parseTransactionsWithGemini(decrypted, source.labelName, subject)
+            this.logger.log(
+              `[SYNC_PDF_STEP] stage=parse_done card=${source.cardKey} label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId} entries=${parsed.transactions.length}`,
+            )
             const month = parsed.statement_month
             const statement = month
               ? await this.prisma.statement.findFirst({
@@ -309,6 +347,9 @@ export class DetailedStatementsSyncService {
               if (result.createdAt.getTime() === result.updatedAt.getTime()) inserted++
               else updated++
             }
+            this.logger.log(
+              `[SYNC_PDF_STEP] stage=save_done card=${source.cardKey} label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId} entries=${parsed.transactions.length}`,
+            )
           } catch (error) {
             failed++
             this.logger.warn(
@@ -368,9 +409,10 @@ export class DetailedStatementsSyncService {
   ): Promise<string[]> {
     const ids: string[] = []
     let pageToken: string | undefined
-    const q = afterDateYmd
-      ? `label:"${labelName}" has:attachment filename:pdf after:${afterDateYmd}`
-      : `label:"${labelName}" has:attachment filename:pdf`
+    const fallback = new Date()
+    fallback.setUTCFullYear(fallback.getUTCFullYear() - 1)
+    const effectiveAfter = afterDateYmd ?? this.toAfterDateYmd(fallback)
+    const q = `label:"${labelName}" has:attachment filename:pdf after:${effectiveAfter}`
     do {
       const resp = await gmail.users.messages.list({
         userId: appConfig.importGmailUser || 'me',
@@ -388,6 +430,13 @@ export class DetailedStatementsSyncService {
   private decodeBase64UrlToBuffer(input: string): Buffer {
     const normalized = input.replace(/-/g, '+').replace(/_/g, '/')
     return Buffer.from(normalized, 'base64')
+  }
+
+  private toAfterDateYmd(input: Date): string {
+    const y = input.getUTCFullYear()
+    const m = String(input.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(input.getUTCDate()).padStart(2, '0')
+    return `${y}/${m}/${d}`
   }
 
   private decodeBase64Url(input: string): string {
@@ -566,5 +615,11 @@ export class DetailedStatementsSyncService {
 
   private toInputJsonValue(entry: Record<string, unknown>): Prisma.InputJsonValue {
     return JSON.parse(JSON.stringify(entry)) as Prisma.InputJsonValue
+  }
+
+  private deriveIssuer(cardKey: string): string {
+    const prefix = cardKey.split('_')[0]?.trim().toUpperCase()
+    if (!prefix) return 'UNKNOWN'
+    return prefix
   }
 }

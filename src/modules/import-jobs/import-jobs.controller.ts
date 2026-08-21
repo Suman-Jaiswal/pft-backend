@@ -207,6 +207,28 @@ export class ImportJobsController {
     return ok(result)
   }
 
+  @Post('detailed-statements/query')
+  @ApiOperation({ summary: 'Query detailed statement metadata [AUTH: X-Job-Token + X-Tenant-Id]' })
+  @ApiSecurity('job-token')
+  @ApiSecurity('tenant-id')
+  @HttpCode(HttpStatus.OK)
+  async queryDetailedStatements(
+    @Body() dto: ListDetailedStatementsDto,
+    @Headers('x-job-token') token?: string,
+    @Headers('x-tenant-id') tenantId?: string,
+  ) {
+    this.ensureJobToken(token)
+    const result = await this.importJobsService.listDetailedStatements({
+      tenantId: this.requireTenantId(tenantId),
+      cardKeys: dto.cardKeys,
+      fromDate: dto.fromDate,
+      toDate: dto.toDate,
+      page: dto.page,
+      pageSize: dto.pageSize,
+    })
+    return ok(result)
+  }
+
   @Post('detailed-statements/sync')
   @ApiOperation({ summary: 'Run detailed statement sync [AUTH: X-Job-Token + X-Tenant-Id]' })
   @ApiSecurity('job-token')
@@ -224,6 +246,7 @@ export class ImportJobsController {
       owner,
       dryRun: dto.dryRun,
       cardKeys: dto.cardKeys,
+      bypassCardLookup: dto.bypassCardLookup,
     })
     return ok(result)
   }

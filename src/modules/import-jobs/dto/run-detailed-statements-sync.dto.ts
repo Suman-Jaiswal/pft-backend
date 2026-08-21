@@ -12,4 +12,13 @@ export class RunDetailedStatementsSyncDto {
   @IsArray()
   @IsString({ each: true })
   cardKeys?: string[]
+
+  @ApiPropertyOptional({
+    description:
+      'When true, auto-create missing card keys before sync. Defaults to false for API calls.',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  bypassCardLookup?: boolean
 }

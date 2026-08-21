@@ -264,6 +264,7 @@ export class ImportJobsService {
     owner: string
     dryRun?: boolean
     cardKeys?: string[]
+    bypassCardLookup?: boolean
   }) {
     const acquired = await this.lockService.acquire(DETAILED_STATEMENTS_JOB_KEY, options.owner, LOCK_TTL_MS)
     if (!acquired) {
@@ -291,6 +292,7 @@ export class ImportJobsService {
         tenantId: options.tenantId,
         dryRun: options.dryRun,
         cardKeys: options.cardKeys,
+        bypassCardLookup: options.bypassCardLookup,
       })
     } finally {
       await this.lockService.release(DETAILED_STATEMENTS_JOB_KEY, options.owner)

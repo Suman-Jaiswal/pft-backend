@@ -24,6 +24,11 @@ type ParsedTransactions = {
   transactions: Array<Record<string, unknown>>
 }
 
+function deriveIssuer(cardKey: string): string {
+  const prefix = cardKey.split('_')[0]?.trim().toUpperCase()
+  return prefix || 'UNKNOWN'
+}
+
 const STATEMENT_SOURCES: StatementSource[] = [
   { cardKey: 'SBI_XX5965', labelName: appConfig.statementLabelSbi, pdfPassword: appConfig.statementPdfPasswordSbi || undefined },
   { cardKey: 'HDFC_XX9335', labelName: appConfig.statementLabelHdfc, pdfPassword: appConfig.statementPdfPasswordHdfc || undefined },
@@ -32,6 +37,28 @@ const STATEMENT_SOURCES: StatementSource[] = [
   { cardKey: 'CSB_XX4345', labelName: appConfig.statementLabelCsb, pdfPassword: appConfig.statementPdfPasswordCsb || undefined },
   { cardKey: 'SLICE_XX6447', labelName: appConfig.statementLabelSlice, pdfPassword: undefined },
 ]
+
+function line(char = '-', width = 88): string {
+  return char.repeat(width)
+}
+
+function section(title: string): void {
+  console.log('')
+  console.log(line('='))
+  console.log(` ${title}`)
+  console.log(line('='))
+}
+
+function subSection(title: string): void {
+  console.log('')
+  console.log(line('-'))
+  console.log(` ${title}`)
+  console.log(line('-'))
+}
+
+function step(message: string): void {
+  console.log(`  -> ${message}`)
+}
 
 function required(name: string): string {
   const value = process.env[name]?.trim()
@@ -260,10 +287,14 @@ async function listAllMessageIds(
 ): Promise<string[]> {
   const ids: string[] = []
   let pageToken: string | undefined
-  const q = afterDateYmd
-    ? `label:"${labelName}" has:attachment filename:pdf after:${afterDateYmd}`
-    : `label:"${labelName}" has:attachment filename:pdf`
+  let page = 0
+  const fallback = new Date()
+  fallback.setUTCFullYear(fallback.getUTCFullYear() - 1)
+  const effectiveAfter = afterDateYmd ?? toAfterDateYmd(fallback)
+  const q = `label:"${labelName}" has:attachment filename:pdf after:${effectiveAfter}`
+  step(`[LABEL_LIST_START] label="${labelName}" query=${q}`)
   do {
+    page++
     const resp = await gmail.users.messages.list({
       userId: appConfig.importGmailUser || 'me',
       q,
@@ -273,12 +304,17 @@ async function listAllMessageIds(
     const chunk = (resp.data.messages ?? []).map((m) => m.id).filter((id): id is string => Boolean(id))
     ids.push(...chunk)
     pageToken = resp.data.nextPageToken ?? undefined
+    step(
+      `[LABEL_LIST_PAGE] label="${labelName}" page=${page} fetched=${chunk.length} totalSoFar=${ids.length} hasNext=${Boolean(pageToken)}`,
+    )
   } while (pageToken)
+  step(`[LABEL_LIST_DONE] label="${labelName}" totalMessages=${ids.length}`)
   return ids
 }
 
 async function main(): Promise<void> {
   const tenantIdFromEnv = process.env.TENANT_ID?.trim()
+  const bypassCardLookup = process.env.BYPASS_CARD_LOOKUP !== 'false'
   const clientId = required('GOOGLE_CLIENT_ID')
   const clientSecret = required('GOOGLE_CLIENT_SECRET')
 
@@ -314,12 +350,31 @@ async function main(): Promise<void> {
   let updated = 0
   let failed = 0
 
-  console.log(`Starting detailed statement backfill for tenant=${tenantId}`)
+  section('DETAILED STATEMENT BACKFILL')
+  console.log(`Tenant            : ${tenantId}`)
+  console.log(`Bypass card lookup: ${bypassCardLookup}`)
 
   for (const source of STATEMENT_SOURCES) {
-    const card = cardByKey.get(source.cardKey.toUpperCase())
+    subSection(`SOURCE ${source.cardKey}`)
+    console.log(`Label             : ${source.labelName}`)
+    let card = cardByKey.get(source.cardKey.toUpperCase())
+    if (!card && bypassCardLookup) {
+      card = await prisma.card.create({
+        data: {
+          tenantId,
+          cardKey: source.cardKey,
+          issuer: deriveIssuer(source.cardKey),
+          status: 'ACTIVE',
+          createdBy: 'one-time-script',
+          updatedBy: 'one-time-script',
+        },
+        select: { id: true, cardKey: true },
+      })
+      cardByKey.set(source.cardKey.toUpperCase(), card)
+      step(`[AUTO_CARD_CREATE] card=${source.cardKey} cardId=${card.id}`)
+    }
     if (!card) {
-      console.log(`[SKIP_CARD] card=${source.cardKey} reason=card_not_found`)
+      step(`[SKIP_CARD] card=${source.cardKey} reason=card_not_found`)
       continue
     }
 
@@ -336,7 +391,7 @@ async function main(): Promise<void> {
       ? state.lastStartDate.replace(/-/g, '/')
       : undefined
     const messageIds = await listAllMessageIds(gmail, source.labelName, afterDateYmd)
-    console.log(
+    step(
       `[LABEL_SCAN] label="${source.labelName}" messages=${messageIds.length} after=${afterDateYmd ?? 'ALL'} cutoffMs=${cutoffMs || 0}`,
     )
     totalMessages += messageIds.length
@@ -366,6 +421,7 @@ async function main(): Promise<void> {
 
         for (const pdf of attachments) {
           try {
+            step(`[PDF_STEP] stage=download_start label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`)
             const attachmentResp = await gmail.users.messages.attachments.get({
               userId: appConfig.importGmailUser || 'me',
               messageId,
@@ -374,9 +430,14 @@ async function main(): Promise<void> {
             const rawData = attachmentResp.data.data
             if (!rawData) continue
 
+            step(`[PDF_STEP] stage=download_done label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`)
             const pdfBytes = decodeBase64UrlToBuffer(rawData)
+            step(`[PDF_STEP] stage=decrypt_start label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`)
             const decrypted = await decryptAndExtractPdfText(pdfBytes, source.labelName, subject || body, source.pdfPassword)
+            step(`[PDF_STEP] stage=decrypt_done label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`)
+            step(`[PDF_STEP] stage=parse_start label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId}`)
             const parsed = await parseTransactionsWithGemini(decrypted.text, source.labelName, subject)
+            step(`[PDF_STEP] stage=parse_done label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId} entries=${parsed.transactions.length}`)
             const month = parsed.statement_month
             const statement = month
               ? await prisma.statement.findFirst({
@@ -461,14 +522,15 @@ async function main(): Promise<void> {
               if (result.createdAt.getTime() === result.updatedAt.getTime()) inserted++
               else updated++
             }
+            step(`[PDF_STEP] stage=save_done label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId} entries=${parsed.transactions.length}`)
 
-            console.log(
+            step(
               `[PDF_OK] label="${source.labelName}" message=${messageId} attachment="${pdf.filename || pdf.attachmentId}" entries=${parsed.transactions.length} password=${decrypted.passwordUsedMasked ?? 'none'}`,
             )
           } catch (error) {
             failed++
             const msgText = error instanceof Error ? error.message : String(error)
-            console.log(
+            step(
               `[PDF_FAIL] label="${source.labelName}" message=${messageId} attachment=${pdf.attachmentId} reason=${msgText}`,
             )
           }
@@ -476,7 +538,7 @@ async function main(): Promise<void> {
       } catch (error) {
         failed++
         const msgText = error instanceof Error ? error.message : String(error)
-        console.log(`[MSG_FAIL] label="${source.labelName}" message=${messageId} reason=${msgText}`)
+        step(`[MSG_FAIL] label="${source.labelName}" message=${messageId} reason=${msgText}`)
       }
     }
 
@@ -504,21 +566,21 @@ async function main(): Promise<void> {
           lastStartDate: overlapStart.toISOString().slice(0, 10),
         },
       })
-      console.log(
+      step(
         `[WATERMARK_UPDATE] card=${source.cardKey} watermarkIso=${new Date(maxSeenInternalMs).toISOString()} nextAfter=${toAfterDateYmd(overlapStart)}`,
       )
     }
   }
 
-  console.log('')
-  console.log('Backfill complete:')
-  console.log(`  Tenant: ${tenantId}`)
-  console.log(`  Messages scanned: ${totalMessages}`)
-  console.log(`  PDFs processed: ${totalPdfs}`)
-  console.log(`  Entry rows parsed: ${totalEntries}`)
-  console.log(`  Rows inserted: ${inserted}`)
-  console.log(`  Rows updated: ${updated}`)
-  console.log(`  Failures: ${failed}`)
+  section('BACKFILL COMPLETE')
+  console.log(`Tenant            : ${tenantId}`)
+  console.log(`Messages scanned  : ${totalMessages}`)
+  console.log(`PDFs processed    : ${totalPdfs}`)
+  console.log(`Entry rows parsed : ${totalEntries}`)
+  console.log(`Rows inserted     : ${inserted}`)
+  console.log(`Rows updated      : ${updated}`)
+  console.log(`Failures          : ${failed}`)
+  console.log(line('='))
 }
 
 main()
