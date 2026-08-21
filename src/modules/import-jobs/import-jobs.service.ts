@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { CcTxnImportService } from '@/modules/import-jobs/services/cc-txn-import.service'
 import { CcStatementsImportService } from '@/modules/import-jobs/services/cc-statements-import.service'
+import { DetailedStatementsSyncService } from '@/modules/import-jobs/services/detailed-statements-sync.service'
 import { ImportLockService } from '@/modules/import-jobs/services/import-lock.service'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import {
@@ -20,6 +21,7 @@ import {
 
 const JOB_KEY = 'cc_txn_import'
 const STATEMENTS_JOB_KEY = 'cc_statements_import'
+const DETAILED_STATEMENTS_JOB_KEY = 'detailed_statements_backfill'
 const LOCK_TTL_MS = 20 * 60 * 1000
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue {
@@ -32,6 +34,7 @@ export class ImportJobsService {
     private readonly lockService: ImportLockService,
     private readonly ccTxnImportService: CcTxnImportService,
     private readonly ccStatementsImportService: CcStatementsImportService,
+    private readonly detailedStatementsSyncService: DetailedStatementsSyncService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -254,6 +257,55 @@ export class ImportJobsService {
       completedAt: row.status === 'RUNNING' ? null : row.updatedAt.toISOString(),
       payload: row.payload as unknown as StatementImportRunSummary | CcStatementsImportStartResult,
     }
+  }
+
+  async runDetailedStatementsSync(options: {
+    tenantId: string
+    owner: string
+    dryRun?: boolean
+    cardKeys?: string[]
+  }) {
+    const acquired = await this.lockService.acquire(DETAILED_STATEMENTS_JOB_KEY, options.owner, LOCK_TTL_MS)
+    if (!acquired) {
+      const now = new Date().toISOString()
+      return {
+        job: DETAILED_STATEMENTS_JOB_KEY,
+        status: 'SKIPPED_LOCKED',
+        startedAt: now,
+        completedAt: now,
+        elapsedMs: 0,
+        dryRun: Boolean(options.dryRun),
+        aggregate: {
+          messagesScanned: 0,
+          pdfsProcessed: 0,
+          entriesParsed: 0,
+          inserted: 0,
+          updated: 0,
+          failed: 0,
+        },
+        cards: [],
+      }
+    }
+    try {
+      return await this.detailedStatementsSyncService.runSync({
+        tenantId: options.tenantId,
+        dryRun: options.dryRun,
+        cardKeys: options.cardKeys,
+      })
+    } finally {
+      await this.lockService.release(DETAILED_STATEMENTS_JOB_KEY, options.owner)
+    }
+  }
+
+  async listDetailedStatements(options: {
+    tenantId: string
+    cardKeys?: string[]
+    fromDate?: string
+    toDate?: string
+    page?: number
+    pageSize?: number
+  }) {
+    return this.detailedStatementsSyncService.listMetadata(options)
   }
 
   private async executeCcStatementsImportRun(options: {

@@ -113,6 +113,7 @@ model Card {
   updatedBy            String
   statements           Statement[]
   transactions         Transaction[]
+  detailedStatements   DetailedStatement[]
 
   @@unique([tenantId, cardKey], map: "uq_cards_tenant_card_key")
 }
@@ -134,8 +135,39 @@ model Statement {
   updatedBy          String
   card               Card     @relation(fields: [cardId], references: [id])
   transactions       Transaction[]
+  detailedStatements DetailedStatement[]
 
   @@unique([tenantId, cardId, statementMonth], map: "uq_statements_tenant_card_month")
+}
+
+model DetailedStatement {
+  id              String   @id @default(cuid())
+  tenantId        String
+  cardId          String
+  cardKey         String
+  labelName       String
+  gmailMessageId  String
+  gmailInternalMs BigInt?
+  attachmentId    String?
+  statementId     String?
+  statementMonth  String?
+  entryIndex      Int
+  entryHash       String
+  txnDate         DateTime?
+  amount          Decimal?
+  merchant        String?
+  currency        String?
+  metadata        Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String
+  updatedBy       String
+  card            Card     @relation(fields: [cardId], references: [id])
+  statement       Statement? @relation(fields: [statementId], references: [id])
+
+  @@unique([tenantId, cardKey, gmailMessageId, entryHash], map: "uq_detailed_statement_message_entry")
+  @@index([tenantId, cardId, statementMonth], map: "idx_detailed_statement_tenant_card_month")
+  @@index([tenantId, labelName], map: "idx_detailed_statement_tenant_label")
 }
 
 model Transaction {
