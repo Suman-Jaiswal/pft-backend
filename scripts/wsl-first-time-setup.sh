@@ -40,6 +40,11 @@ require_cmd() {
   fi
 }
 
+db_is_ready() {
+  docker run --rm --network host "${DB_IMAGE}" \
+    pg_isready -h localhost -p "${DB_HOST_PORT}" -U "${DB_USER}" -d "${DB_NAME}" >/dev/null 2>&1
+}
+
 hr
 echo "PFT BACKEND :: WSL FIRST-TIME SETUP"
 hr
@@ -63,37 +68,42 @@ if ! docker info >/dev/null 2>&1; then
 fi
 echo "OK: Docker reachable"
 
-step "Ensuring Postgres container exists and is running"
-if docker ps -a --format '{{.Names}}' | rg "^${DB_CONTAINER_NAME}$" >/dev/null 2>&1; then
-  if docker ps --format '{{.Names}}' | rg "^${DB_CONTAINER_NAME}$" >/dev/null 2>&1; then
-    echo "Container already running: ${DB_CONTAINER_NAME}"
-  else
-    echo "Starting existing container: ${DB_CONTAINER_NAME}"
-    docker start "${DB_CONTAINER_NAME}" >/dev/null
-  fi
+step "Ensuring Postgres availability on localhost:${DB_HOST_PORT}"
+if db_is_ready; then
+  echo "Postgres already reachable on localhost:${DB_HOST_PORT} (skipping container startup)."
 else
-  echo "Creating container: ${DB_CONTAINER_NAME}"
-  docker run -d \
-    --name "${DB_CONTAINER_NAME}" \
-    -e POSTGRES_DB="${DB_NAME}" \
-    -e POSTGRES_USER="${DB_USER}" \
-    -e POSTGRES_PASSWORD="${DB_PASS}" \
-    -p "${DB_HOST_PORT}:${DB_CONTAINER_PORT}" \
-    "${DB_IMAGE}" >/dev/null
-fi
+  echo "No reachable Postgres on localhost:${DB_HOST_PORT}; ensuring container is running."
+  if docker ps -a --format '{{.Names}}' | rg "^${DB_CONTAINER_NAME}$" >/dev/null 2>&1; then
+    if docker ps --format '{{.Names}}' | rg "^${DB_CONTAINER_NAME}$" >/dev/null 2>&1; then
+      echo "Container already running: ${DB_CONTAINER_NAME}"
+    else
+      echo "Starting existing container: ${DB_CONTAINER_NAME}"
+      docker start "${DB_CONTAINER_NAME}" >/dev/null
+    fi
+  else
+    echo "Creating container: ${DB_CONTAINER_NAME}"
+    docker run -d \
+      --name "${DB_CONTAINER_NAME}" \
+      -e POSTGRES_DB="${DB_NAME}" \
+      -e POSTGRES_USER="${DB_USER}" \
+      -e POSTGRES_PASSWORD="${DB_PASS}" \
+      -p "${DB_HOST_PORT}:${DB_CONTAINER_PORT}" \
+      "${DB_IMAGE}" >/dev/null
+  fi
 
-step "Waiting for Postgres readiness"
-for i in {1..30}; do
-  if docker exec "${DB_CONTAINER_NAME}" pg_isready -U "${DB_USER}" -d "${DB_NAME}" >/dev/null 2>&1; then
-    echo "Postgres is ready."
-    break
-  fi
-  if [[ "$i" -eq 30 ]]; then
-    echo "ERROR: Postgres did not become ready in time."
-    exit 1
-  fi
-  sleep 1
-done
+  step "Waiting for Postgres readiness"
+  for i in {1..30}; do
+    if db_is_ready; then
+      echo "Postgres is ready."
+      break
+    fi
+    if [[ "$i" -eq 30 ]]; then
+      echo "ERROR: Postgres did not become ready in time."
+      exit 1
+    fi
+    sleep 1
+  done
+fi
 
 step "Ensuring .env exists"
 if [[ ! -f .env ]]; then
