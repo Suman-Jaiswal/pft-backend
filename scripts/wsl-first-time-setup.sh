@@ -9,6 +9,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+PARENT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 DB_CONTAINER_NAME="pft_backend_postgres_55433"
 DB_IMAGE="postgres:16-alpine"
@@ -21,6 +22,8 @@ DB_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:${DB_HOST_PORT}/${DB_NAME}"
 
 BACKEND_APP_NAME="pft-backend-dev"
 STUDIO_APP_NAME="prisma-studio"
+FRONTEND_APP_NAME="pft-dev"
+FRONTEND_DIR="$PARENT_DIR/pft-app"
 
 hr() {
   printf '\n%s\n' "================================================================================"
@@ -144,6 +147,20 @@ pm2 delete "${STUDIO_APP_NAME}" >/dev/null 2>&1 || true
 
 pm2 start "npm run start:dev" --name "${BACKEND_APP_NAME}" --cwd "$ROOT_DIR"
 pm2 start "npm run prisma:studio" --name "${STUDIO_APP_NAME}" --cwd "$ROOT_DIR"
+
+step "Setting up frontend PM2 app (if pft-app exists)"
+if [[ -d "$FRONTEND_DIR" ]]; then
+  echo "Frontend directory found: $FRONTEND_DIR"
+  (
+    cd "$FRONTEND_DIR"
+    npm install
+  )
+  pm2 delete "${FRONTEND_APP_NAME}" >/dev/null 2>&1 || true
+  pm2 start "npm run dev" --name "${FRONTEND_APP_NAME}" --cwd "$FRONTEND_DIR"
+else
+  echo "Frontend directory not found at $FRONTEND_DIR (skipping frontend setup)."
+fi
+
 pm2 save
 
 hr
@@ -151,6 +168,7 @@ echo "SETUP COMPLETE"
 hr
 echo "Backend PM2 app : ${BACKEND_APP_NAME}"
 echo "Studio PM2 app  : ${STUDIO_APP_NAME}"
+echo "Frontend PM2 app: ${FRONTEND_APP_NAME} (if pft-app detected)"
 echo "DB URL          : ${DB_URL}"
 echo ""
 echo "Useful commands:"
