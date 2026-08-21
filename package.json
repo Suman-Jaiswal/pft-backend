@@ -24,7 +24,8 @@
     "migrate:firestore": "ts-node -r tsconfig-paths/register scripts/migrate-firestore.ts",
     "reconcile:migration": "ts-node -r tsconfig-paths/register scripts/reconcile-migration.ts",
     "gmail:token": "ts-node -r tsconfig-paths/register scripts/get-gmail-refresh-token.ts",
-    "backfill:email-trace": "ts-node -r tsconfig-paths/register scripts/backfill-email-trace.ts"
+    "backfill:email-trace": "ts-node -r tsconfig-paths/register scripts/backfill-email-trace.ts",
+    "backfill:detailed-statements": "ts-node -r tsconfig-paths/register scripts/backfill-detailed-statements.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.2",

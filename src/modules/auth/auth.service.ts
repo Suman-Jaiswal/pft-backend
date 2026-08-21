@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common'
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcrypt'
 import { createHash, randomBytes } from 'crypto'
@@ -8,6 +8,8 @@ import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name)
+
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
@@ -75,7 +77,18 @@ export class AuthService {
 
     if (!profile.sub) throw new UnauthorizedException('Google subject missing')
     if (!profile.email) throw new UnauthorizedException('Google email missing')
+
+    const normalizedEmail = profile.email.toLowerCase()
+    const normalizedGoogleSub = profile.sub.trim()
+    const existingBySub = await this.usersService.findByGoogleSub(normalizedGoogleSub)
+    const existingByEmail = existingBySub ? null : await this.usersService.findByEmail(normalizedEmail)
+
     const user = await this.usersService.findOrCreateGoogleUser(profile.email, profile.sub)
+    this.logger.log(
+      `[GOOGLE_CALLBACK_USER] email=${normalizedEmail} sub=${normalizedGoogleSub} result=${
+        existingBySub ? 'found_by_sub' : existingByEmail ? 'linked_by_email' : 'created_new'
+      } userId=${user.id} tenantId=${user.tenantId}`,
+    )
     const signed = await this.sign({
       ...user,
       name: profile.name,

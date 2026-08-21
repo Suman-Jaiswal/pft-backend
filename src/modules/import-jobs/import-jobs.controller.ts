@@ -19,6 +19,8 @@ import { RunCcStatementsImportDto } from '@/modules/import-jobs/dto/run-cc-state
 import { ListCcTxnFailuresDto } from '@/modules/import-jobs/dto/list-cc-txn-failures.dto'
 import { RetryCcTxnFailuresDto } from '@/modules/import-jobs/dto/retry-cc-txn-failures.dto'
 import { RebaseWatermarkDto } from '@/modules/import-jobs/dto/rebase-watermark.dto'
+import { RunDetailedStatementsSyncDto } from '@/modules/import-jobs/dto/run-detailed-statements-sync.dto'
+import { ListDetailedStatementsDto } from '@/modules/import-jobs/dto/list-detailed-statements.dto'
 
 @ApiTags('import-jobs')
 @Controller({ path: 'import-jobs', version: '1' })
@@ -179,6 +181,72 @@ export class ImportJobsController {
       days: dto.days,
       bankKeys: dto.bankKeys,
       dryRun: dto.dryRun,
+    })
+    return ok(result)
+  }
+
+  @Get('detailed-statements')
+  @ApiOperation({ summary: 'List detailed statement metadata [AUTH: X-Job-Token + X-Tenant-Id]' })
+  @ApiSecurity('job-token')
+  @ApiSecurity('tenant-id')
+  @HttpCode(HttpStatus.OK)
+  async listDetailedStatements(
+    @Query() dto: ListDetailedStatementsDto,
+    @Headers('x-job-token') token?: string,
+    @Headers('x-tenant-id') tenantId?: string,
+  ) {
+    this.ensureJobToken(token)
+    const result = await this.importJobsService.listDetailedStatements({
+      tenantId: this.requireTenantId(tenantId),
+      cardKeys: dto.cardKeys,
+      fromDate: dto.fromDate,
+      toDate: dto.toDate,
+      page: dto.page,
+      pageSize: dto.pageSize,
+    })
+    return ok(result)
+  }
+
+  @Post('detailed-statements/query')
+  @ApiOperation({ summary: 'Query detailed statement metadata [AUTH: X-Job-Token + X-Tenant-Id]' })
+  @ApiSecurity('job-token')
+  @ApiSecurity('tenant-id')
+  @HttpCode(HttpStatus.OK)
+  async queryDetailedStatements(
+    @Body() dto: ListDetailedStatementsDto,
+    @Headers('x-job-token') token?: string,
+    @Headers('x-tenant-id') tenantId?: string,
+  ) {
+    this.ensureJobToken(token)
+    const result = await this.importJobsService.listDetailedStatements({
+      tenantId: this.requireTenantId(tenantId),
+      cardKeys: dto.cardKeys,
+      fromDate: dto.fromDate,
+      toDate: dto.toDate,
+      page: dto.page,
+      pageSize: dto.pageSize,
+    })
+    return ok(result)
+  }
+
+  @Post('detailed-statements/sync')
+  @ApiOperation({ summary: 'Run detailed statement sync [AUTH: X-Job-Token + X-Tenant-Id]' })
+  @ApiSecurity('job-token')
+  @ApiSecurity('tenant-id')
+  @HttpCode(HttpStatus.OK)
+  async runDetailedStatementsSync(
+    @Body() dto: RunDetailedStatementsSyncDto,
+    @Headers('x-job-token') token?: string,
+    @Headers('x-tenant-id') tenantId?: string,
+  ) {
+    this.ensureJobToken(token)
+    const owner = `api:${Date.now()}`
+    const result = await this.importJobsService.runDetailedStatementsSync({
+      tenantId: this.requireTenantId(tenantId),
+      owner,
+      dryRun: dto.dryRun,
+      cardKeys: dto.cardKeys,
+      bypassCardLookup: dto.bypassCardLookup,
     })
     return ok(result)
   }

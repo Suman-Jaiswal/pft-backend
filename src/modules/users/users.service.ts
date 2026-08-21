@@ -21,6 +21,18 @@ export class UsersService {
     }
   }
 
+  async findByGoogleSub(googleSub: string): Promise<UserEntity | null> {
+    const row = await this.repository.findByGoogleSub(googleSub.trim())
+    if (!row) return null
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      email: row.email,
+      passwordHash: row.passwordHash,
+      role: row.role as Role,
+    }
+  }
+
   async findOrCreateGoogleUser(email: string, googleSub: string): Promise<UserEntity> {
     const normalizedEmail = email.toLowerCase()
     const normalizedGoogleSub = googleSub.trim()
