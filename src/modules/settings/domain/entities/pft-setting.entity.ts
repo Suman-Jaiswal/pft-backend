@@ -27,6 +27,7 @@ export class PftSettingEntity extends BaseEntity {
     public readonly stashDeductions: number,
     public readonly dashboardYearRange: string | null,
     public readonly dashboardBaselineVersion: number,
+    public readonly planDefaultSlates: unknown[] | null,
     public readonly importGmailRefreshToken: string | null,
     public readonly importGmailEmail: string | null,
     public readonly importGmailScope: string | null,

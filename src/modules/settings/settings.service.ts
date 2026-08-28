@@ -30,6 +30,9 @@ export type DeductStashResult = {
   appliedDeduction: number
 }
 
+const MAX_PLAN_DEFAULT_SLATES = 6
+const MAX_PLAN_DEFAULT_SLATE_LABEL_LENGTH = 12
+
 function toFiniteNumber(value: unknown): number {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0
@@ -57,6 +60,7 @@ export class SettingsService {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       null,
       1,
+      null,
       null,
       null,
       null,
@@ -110,6 +114,20 @@ export class SettingsService {
       dto.stashDeductions ?? current.stashDeductions,
       dto.dashboardYearRange ?? current.dashboardYearRange,
       dto.dashboardBaselineVersion ?? current.dashboardBaselineVersion,
+      this.normalizePlanDefaultSlates(dto.planDefaultSlates, {
+        salary: dto.defaultSalary ?? current.defaultSalary,
+        otherSources: dto.defaultOtherSources ?? current.defaultOtherSources,
+        rent: dto.defaultRent ?? current.defaultRent,
+        cook: dto.defaultCook ?? current.defaultCook,
+        loanRepayment: dto.defaultLoanRepayment ?? current.defaultLoanRepayment,
+        sipMf: dto.defaultSipMf ?? current.defaultSipMf,
+        stocks: dto.defaultStocks ?? current.defaultStocks,
+        fd: dto.defaultFd ?? current.defaultFd,
+        savings: dto.defaultSavings ?? current.defaultSavings,
+        stash: dto.defaultStash ?? current.defaultStash,
+        bills: dto.defaultBills ?? current.defaultBills,
+        otherExpenses: dto.defaultOtherExpenses ?? current.defaultOtherExpenses,
+      }),
       current.importGmailRefreshToken,
       current.importGmailEmail,
       current.importGmailScope,
@@ -161,6 +179,20 @@ export class SettingsService {
       nextDeductions,
       current.dashboardYearRange,
       current.dashboardBaselineVersion,
+      this.normalizePlanDefaultSlates(current.planDefaultSlates, {
+        salary: current.defaultSalary,
+        otherSources: current.defaultOtherSources,
+        rent: current.defaultRent,
+        cook: current.defaultCook,
+        loanRepayment: current.defaultLoanRepayment,
+        sipMf: current.defaultSipMf,
+        stocks: current.defaultStocks,
+        fd: current.defaultFd,
+        savings: current.defaultSavings,
+        stash: current.defaultStash,
+        bills: current.defaultBills,
+        otherExpenses: current.defaultOtherExpenses,
+      }),
       current.importGmailRefreshToken,
       current.importGmailEmail,
       current.importGmailScope,
@@ -265,5 +297,67 @@ export class SettingsService {
     if (value == null || value === '') return null
     const numeric = toFiniteNumber(value)
     return numeric > 0 ? numeric : 0
+  }
+
+  private normalizePlanDefaultSlates(
+    raw: unknown,
+    defaults: {
+      salary: number
+      otherSources: number
+      rent: number
+      cook: number
+      loanRepayment: number
+      sipMf: number
+      stocks: number
+      fd: number
+      savings: number
+      stash: number
+      bills: number
+      otherExpenses: number
+    },
+  ): Array<{ id: string; name: string; serial: number; defaults: Record<string, number> }> {
+    const fallback = {
+      id: 'ins-0',
+      name: 'ins-0',
+      serial: 0,
+      defaults: { ...defaults },
+    }
+    if (!Array.isArray(raw) || raw.length === 0) return [fallback]
+    const out: Array<{ id: string; name: string; serial: number; defaults: Record<string, number> }> = []
+    for (const item of raw.slice(0, MAX_PLAN_DEFAULT_SLATES)) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+      const row = item as Record<string, unknown>
+      const serial = Math.max(0, Math.floor(toFiniteNumber(row.serial)))
+      const id = typeof row.id === 'string' && row.id.trim() ? row.id.trim() : `ins-${serial}`
+      const rawName = typeof row.name === 'string' ? row.name.trim() : ''
+      const name = (rawName || id).slice(0, MAX_PLAN_DEFAULT_SLATE_LABEL_LENGTH)
+      const sourceDefaults =
+        row.defaults && typeof row.defaults === 'object' && !Array.isArray(row.defaults)
+          ? (row.defaults as Record<string, unknown>)
+          : {}
+      out.push({
+        id,
+        name,
+        serial,
+        defaults: {
+          salary: toFiniteNumber(sourceDefaults.salary ?? defaults.salary),
+          otherSources: toFiniteNumber(sourceDefaults.otherSources ?? defaults.otherSources),
+          rent: toFiniteNumber(sourceDefaults.rent ?? defaults.rent),
+          cook: toFiniteNumber(sourceDefaults.cook ?? defaults.cook),
+          loanRepayment: toFiniteNumber(sourceDefaults.loanRepayment ?? defaults.loanRepayment),
+          sipMf: toFiniteNumber(sourceDefaults.sipMf ?? defaults.sipMf),
+          stocks: toFiniteNumber(sourceDefaults.stocks ?? defaults.stocks),
+          fd: toFiniteNumber(sourceDefaults.fd ?? defaults.fd),
+          savings: toFiniteNumber(sourceDefaults.savings ?? defaults.savings),
+          stash: toFiniteNumber(sourceDefaults.stash ?? defaults.stash),
+          bills: toFiniteNumber(sourceDefaults.bills ?? defaults.bills),
+          otherExpenses: toFiniteNumber(sourceDefaults.otherExpenses ?? defaults.otherExpenses),
+        },
+      })
+    }
+    if (out.length === 0) return [fallback]
+    const hasIns0 = out.some((row) => row.id === 'ins-0')
+    if (!hasIns0) out.unshift(fallback)
+    return out.slice(0, MAX_PLAN_DEFAULT_SLATES)
   }
 }

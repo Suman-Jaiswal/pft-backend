@@ -304,6 +304,7 @@ model PftSetting {
   stashDeductions       Decimal  @default(0)
   dashboardYearRange    String?
   dashboardBaselineVersion Int   @default(1)
+  planDefaultSlates     Json?
   importGmailRefreshToken String?
   importGmailEmail        String?
   importGmailScope        String?

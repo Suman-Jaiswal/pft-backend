@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
-import { IsNumber, IsOptional, IsString } from 'class-validator'
+import { IsArray, IsNumber, IsOptional, IsString } from 'class-validator'
 
 export class UpdatePftSettingsDto {
   @ApiPropertyOptional({ default: 'INR' })
@@ -25,4 +25,5 @@ export class UpdatePftSettingsDto {
   @ApiPropertyOptional() @IsNumber() @IsOptional() stashDeductions?: number
   @ApiPropertyOptional() @IsString() @IsOptional() dashboardYearRange?: string
   @ApiPropertyOptional() @IsNumber() @IsOptional() dashboardBaselineVersion?: number
+  @ApiPropertyOptional({ type: 'array' }) @IsArray() @IsOptional() planDefaultSlates?: unknown[]
 }
