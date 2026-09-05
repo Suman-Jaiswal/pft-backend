@@ -15,12 +15,14 @@ import { LoansModule } from '@/modules/loans/loans.module'
 import { ImportJobsModule } from '@/modules/import-jobs/import-jobs.module'
 import { GoalsModule } from '@/modules/goals/goals.module'
 import { FdLedgerModule } from '@/modules/fd-ledger/fd-ledger.module'
+import { InvestmentsModule } from '@/modules/investments/investments.module'
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     PrismaModule,
     FdLedgerModule,
+    InvestmentsModule,
     AuthModule,
     UsersModule,
     SettingsModule,

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { PftSetting } from '@prisma/client'
+import { PftSetting, Prisma } from '@prisma/client'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { PftSettingEntity } from '@/modules/settings/domain/entities/pft-setting.entity'
 import { IPftSettingRepository } from '@/modules/settings/domain/repositories/pft-setting.repository'
@@ -52,6 +52,77 @@ function toEntity(row: PftSetting): PftSettingEntity {
   )
 }
 
+type PftSettingClient = Pick<Prisma.TransactionClient, 'pftSetting'>
+
+async function upsertWithClient(
+  client: PftSettingClient,
+  setting: PftSettingEntity,
+): Promise<PftSettingEntity> {
+  const row = await client.pftSetting.upsert({
+    where: { tenantId: setting.tenantId },
+    update: {
+      currency: setting.currency,
+      defaultSalary: setting.defaultSalary,
+      defaultOtherSources: setting.defaultOtherSources,
+      defaultRent: setting.defaultRent,
+      defaultCook: setting.defaultCook,
+      defaultLoanRepayment: setting.defaultLoanRepayment,
+      defaultSipMf: setting.defaultSipMf,
+      defaultStocks: setting.defaultStocks,
+      defaultFd: setting.defaultFd,
+      defaultGoalPayments: setting.defaultGoalPayments,
+      defaultSavings: setting.defaultSavings,
+      defaultStash: setting.defaultStash,
+      defaultBills: setting.defaultBills,
+      defaultBasicExpenses: setting.defaultBasicExpenses,
+      defaultOtherExpenses: setting.defaultOtherExpenses,
+      prevLiquidBalance: setting.prevLiquidBalance,
+      prevInvestmentBalance: setting.prevInvestmentBalance,
+      stashDeductions: setting.stashDeductions,
+      dashboardYearRange: setting.dashboardYearRange ?? undefined,
+      dashboardBaselineVersion: setting.dashboardBaselineVersion,
+      planDefaultSlates: (setting.planDefaultSlates ?? undefined) as object | undefined,
+      importGmailRefreshToken: setting.importGmailRefreshToken ?? undefined,
+      importGmailEmail: setting.importGmailEmail ?? undefined,
+      importGmailScope: setting.importGmailScope ?? undefined,
+      importGmailTokenUpdatedAt: setting.importGmailTokenUpdatedAt ?? undefined,
+      updatedBy: setting.updatedBy,
+    },
+    create: {
+      id: setting.id,
+      tenantId: setting.tenantId,
+      currency: setting.currency,
+      defaultSalary: setting.defaultSalary,
+      defaultOtherSources: setting.defaultOtherSources,
+      defaultRent: setting.defaultRent,
+      defaultCook: setting.defaultCook,
+      defaultLoanRepayment: setting.defaultLoanRepayment,
+      defaultSipMf: setting.defaultSipMf,
+      defaultStocks: setting.defaultStocks,
+      defaultFd: setting.defaultFd,
+      defaultGoalPayments: setting.defaultGoalPayments,
+      defaultSavings: setting.defaultSavings,
+      defaultStash: setting.defaultStash,
+      defaultBills: setting.defaultBills,
+      defaultBasicExpenses: setting.defaultBasicExpenses,
+      defaultOtherExpenses: setting.defaultOtherExpenses,
+      prevLiquidBalance: setting.prevLiquidBalance,
+      prevInvestmentBalance: setting.prevInvestmentBalance,
+      stashDeductions: setting.stashDeductions,
+      dashboardYearRange: setting.dashboardYearRange ?? undefined,
+      dashboardBaselineVersion: setting.dashboardBaselineVersion,
+      planDefaultSlates: (setting.planDefaultSlates ?? undefined) as object | undefined,
+      importGmailRefreshToken: setting.importGmailRefreshToken ?? undefined,
+      importGmailEmail: setting.importGmailEmail ?? undefined,
+      importGmailScope: setting.importGmailScope ?? undefined,
+      importGmailTokenUpdatedAt: setting.importGmailTokenUpdatedAt ?? undefined,
+      createdBy: setting.createdBy,
+      updatedBy: setting.updatedBy,
+    },
+  })
+  return toEntity(row)
+}
+
 @Injectable()
 export class PrismaPftSettingRepository implements IPftSettingRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -62,68 +133,20 @@ export class PrismaPftSettingRepository implements IPftSettingRepository {
   }
 
   async upsert(setting: PftSettingEntity): Promise<PftSettingEntity> {
-    const row = await this.prisma.pftSetting.upsert({
-      where: { tenantId: setting.tenantId },
-      update: {
-        currency: setting.currency,
-        defaultSalary: setting.defaultSalary,
-        defaultOtherSources: setting.defaultOtherSources,
-        defaultRent: setting.defaultRent,
-        defaultCook: setting.defaultCook,
-        defaultLoanRepayment: setting.defaultLoanRepayment,
-        defaultSipMf: setting.defaultSipMf,
-        defaultStocks: setting.defaultStocks,
-        defaultFd: setting.defaultFd,
-        defaultGoalPayments: setting.defaultGoalPayments,
-        defaultSavings: setting.defaultSavings,
-        defaultStash: setting.defaultStash,
-        defaultBills: setting.defaultBills,
-        defaultBasicExpenses: setting.defaultBasicExpenses,
-        defaultOtherExpenses: setting.defaultOtherExpenses,
-        prevLiquidBalance: setting.prevLiquidBalance,
-        prevInvestmentBalance: setting.prevInvestmentBalance,
-        stashDeductions: setting.stashDeductions,
-        dashboardYearRange: setting.dashboardYearRange ?? undefined,
-        dashboardBaselineVersion: setting.dashboardBaselineVersion,
-        planDefaultSlates: (setting.planDefaultSlates ?? undefined) as object | undefined,
-        importGmailRefreshToken: setting.importGmailRefreshToken ?? undefined,
-        importGmailEmail: setting.importGmailEmail ?? undefined,
-        importGmailScope: setting.importGmailScope ?? undefined,
-        importGmailTokenUpdatedAt: setting.importGmailTokenUpdatedAt ?? undefined,
-        updatedBy: setting.updatedBy,
-      },
-      create: {
-        id: setting.id,
-        tenantId: setting.tenantId,
-        currency: setting.currency,
-        defaultSalary: setting.defaultSalary,
-        defaultOtherSources: setting.defaultOtherSources,
-        defaultRent: setting.defaultRent,
-        defaultCook: setting.defaultCook,
-        defaultLoanRepayment: setting.defaultLoanRepayment,
-        defaultSipMf: setting.defaultSipMf,
-        defaultStocks: setting.defaultStocks,
-        defaultFd: setting.defaultFd,
-        defaultGoalPayments: setting.defaultGoalPayments,
-        defaultSavings: setting.defaultSavings,
-        defaultStash: setting.defaultStash,
-        defaultBills: setting.defaultBills,
-        defaultBasicExpenses: setting.defaultBasicExpenses,
-        defaultOtherExpenses: setting.defaultOtherExpenses,
-        prevLiquidBalance: setting.prevLiquidBalance,
-        prevInvestmentBalance: setting.prevInvestmentBalance,
-        stashDeductions: setting.stashDeductions,
-        dashboardYearRange: setting.dashboardYearRange ?? undefined,
-        dashboardBaselineVersion: setting.dashboardBaselineVersion,
-        planDefaultSlates: (setting.planDefaultSlates ?? undefined) as object | undefined,
-        importGmailRefreshToken: setting.importGmailRefreshToken ?? undefined,
-        importGmailEmail: setting.importGmailEmail ?? undefined,
-        importGmailScope: setting.importGmailScope ?? undefined,
-        importGmailTokenUpdatedAt: setting.importGmailTokenUpdatedAt ?? undefined,
-        createdBy: setting.createdBy,
-        updatedBy: setting.updatedBy,
-      },
+    return upsertWithClient(this.prisma, setting)
+  }
+
+  runInTransaction<T>(
+    fn: (ctx: {
+      transaction: Prisma.TransactionClient
+      upsert: (setting: PftSettingEntity) => Promise<PftSettingEntity>
+    }) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(async (tx) => {
+      return fn({
+        transaction: tx,
+        upsert: (setting) => upsertWithClient(tx, setting),
+      })
     })
-    return toEntity(row)
   }
 }

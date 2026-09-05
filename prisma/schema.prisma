@@ -129,6 +129,17 @@ model FdLedgerEntry {
   @@index([sourceEntryId], map: "idx_fd_ledger_source")
 }
 
+model InvestmentSale {
+  id        String   @id @default(cuid())
+  tenantId  String
+  assetType String
+  amount    Decimal
+  createdAt DateTime @default(now())
+  createdBy String
+
+  @@index([tenantId, assetType, createdAt], map: "idx_investment_sales_tenant_asset_created")
+}
+
 model Card {
   id                   String   @id @default(cuid())
   tenantId             String

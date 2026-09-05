@@ -10,6 +10,7 @@ import {
 import { UpdatePftSettingsDto } from '@/modules/settings/presentation/dto/update-pft-settings.dto'
 import { FdLedgerService, type FdLot } from '@/modules/fd-ledger/fd-ledger.service'
 import { coerceFdPacket } from '@/modules/fd-ledger/fd-packet'
+import { InvestmentsService } from '@/modules/investments/investments.service'
 
 export type PftBaselineRow = {
   id: string
@@ -50,6 +51,7 @@ export class SettingsService {
     @Inject(PFT_SETTING_REPOSITORY) private readonly repository: IPftSettingRepository,
     private readonly prisma: PrismaService,
     private readonly fdLedger: FdLedgerService,
+    private readonly investments: InvestmentsService,
   ) {}
 
   async getPftSettings(tenantId: string): Promise<PftSettingEntity> {
@@ -163,6 +165,17 @@ export class SettingsService {
       current.importGmailScope,
       current.importGmailTokenUpdatedAt,
     )
+    const nextPrevInvestmentBalance = dto.prevInvestmentBalance
+    if (nextPrevInvestmentBalance !== undefined) {
+      return this.repository.runInTransaction(async ({ transaction, upsert }) => {
+        await this.investments.lockAndValidateOpeningBalance(
+          tenantId,
+          nextPrevInvestmentBalance,
+          transaction,
+        )
+        return upsert(updated)
+      })
+    }
     return this.repository.upsert(updated)
   }
 

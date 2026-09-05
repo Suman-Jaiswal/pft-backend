@@ -8,6 +8,7 @@ import {
 import { z } from 'zod'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { FdLedgerService } from '@/modules/fd-ledger/fd-ledger.service'
+import { InvestmentsService } from '@/modules/investments/investments.service'
 
 const loanPaymentSchema = z.object({
   id: z.string().trim().min(1),
@@ -31,6 +32,7 @@ export class MonthlyPlansService {
     @Inject(MONTHLY_PLAN_REPOSITORY) private readonly repository: IMonthlyPlanRepository,
     private readonly prisma: PrismaService,
     private readonly fdLedger: FdLedgerService,
+    private readonly investments: InvestmentsService,
   ) {}
 
   private normalizeLoanPayments(items: unknown): Array<{ id: string; name: string; amount: number }> {
@@ -74,7 +76,7 @@ export class MonthlyPlansService {
   }
 
   async getDashboardSummary(tenantId: string) {
-    const [plans, settings, activeLoans, fdSummary] = await Promise.all([
+    const [plans, settings, activeLoans, fdSummary, investmentSummary] = await Promise.all([
       this.repository.listByTenant(tenantId),
       this.prisma.pftSetting.findFirst({ where: { tenantId } }),
       this.prisma.loan.findMany({
@@ -92,6 +94,7 @@ export class MonthlyPlansService {
         },
       }),
       this.fdLedger.summarize(tenantId),
+      this.investments.summarize(tenantId),
     ])
 
     const currentDate = new Date()
@@ -102,8 +105,6 @@ export class MonthlyPlansService {
     const paidByLoanId: Record<string, number> = {}
     let totalStash = 0
     let totalPositiveSavings = 0
-    let totalStocks = 0
-    let totalSipMf = 0
     let totalDeficitWithdrawals = 0
 
     for (const plan of plans) {
@@ -115,8 +116,6 @@ export class MonthlyPlansService {
       const goalPayments = this.normalizeGoalPayments(plan.goalPayments as unknown)
         .reduce((sum, row) => sum + Number(row.amount ?? 0), 0)
       totalPositiveSavings += Math.max(0, savings) + Math.max(0, goalPayments)
-      totalStocks += stocks
-      totalSipMf += sipMf
 
       const income = Number(plan.salary ?? 0) + Number(plan.otherSources ?? 0)
       const loanPayments = this.normalizeLoanPayments(plan.loanPayments as unknown)
@@ -143,16 +142,21 @@ export class MonthlyPlansService {
     }
 
     const prevLiquid = Number(settings?.prevLiquidBalance ?? 0)
-    const prevInvestment = Number(settings?.prevInvestmentBalance ?? 0)
     const stashDeductions = Number(settings?.stashDeductions ?? 0)
+    const soldInvestments =
+      investmentSummary.soldMfRupees + investmentSummary.soldStocksRupees
 
     const cashLike =
-      prevLiquid + totalPositiveSavings + fdSummary.brokenFdRupees - totalDeficitWithdrawals
+      prevLiquid +
+      totalPositiveSavings +
+      fdSummary.brokenFdRupees +
+      soldInvestments -
+      totalDeficitWithdrawals
     const fd = fdSummary.fdBalance
     const liquid = cashLike + fd
-    const stocks = prevInvestment + totalStocks
-    const mf = totalSipMf
-    const investment = stocks + mf
+    const stocks = investmentSummary.stocksBalance
+    const mf = investmentSummary.mfBalance
+    const investment = investmentSummary.investmentBalance
     const corpusTotal = liquid + investment
     const loanRemainingTotal = activeLoans.reduce((sum, loan) => {
       const principal = Number(loan.principal ?? 0)
@@ -256,6 +260,14 @@ export class MonthlyPlansService {
           createdBy: actorId,
           updatedBy: actorId,
         }
+      await this.investments.lockAndValidatePlanWrite(
+        tenantId,
+        dto.year,
+        dto.month,
+        dto.sipMf,
+        dto.stocks,
+        tx.transaction,
+      )
       const saved = await tx.upsertMonthlyPlan({
         tenantId,
         month: dto.month,
