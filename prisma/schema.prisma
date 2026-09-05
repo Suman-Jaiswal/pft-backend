@@ -44,8 +44,9 @@ model MonthlyPlan {
   bills          Decimal  @default(0)
   basicCcSpent   Decimal  @default(0)
   loanPayments   Json?
+  goalPayments   Json?
   stocks         Decimal  @default(0)
-  fd             Decimal  @default(0)
+  fd             Json     @default("{\"amount\":0,\"quantity\":0}")
   savings        Decimal  @default(0)
   stash          Decimal  @default(0)
   otherExpenses  Decimal  @default(0)
@@ -91,6 +92,41 @@ model Loan {
   updatedAt    DateTime @updatedAt
   createdBy    String
   updatedBy    String
+}
+
+model Goal {
+  id           String    @id @default(cuid())
+  tenantId     String
+  name         String
+  targetAmount Decimal?
+  deadline     DateTime?
+  priority     Int?
+  status       String    @default("ACTIVE")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  createdBy    String
+  updatedBy    String
+
+  @@index([tenantId, status], map: "idx_goals_tenant_status")
+}
+
+model FdLedgerEntry {
+  id            String          @id @default(cuid())
+  tenantId      String
+  kind          String
+  amount        Decimal
+  quantity      Int
+  year          Int?
+  month         Int?
+  sourceEntryId String?
+  sourceEntry   FdLedgerEntry?  @relation("FdBreakSource", fields: [sourceEntryId], references: [id], onDelete: Restrict)
+  breaks        FdLedgerEntry[] @relation("FdBreakSource")
+  createdAt     DateTime        @default(now())
+  createdBy     String
+
+  @@unique([tenantId, year, month], map: "uq_fd_ledger_tenant_year_month")
+  @@index([tenantId, kind, createdAt], map: "idx_fd_ledger_tenant_kind_created")
+  @@index([sourceEntryId], map: "idx_fd_ledger_source")
 }
 
 model Card {
@@ -293,7 +329,8 @@ model PftSetting {
   defaultLoanRepayment  Decimal  @default(0)
   defaultSipMf          Decimal  @default(0)
   defaultStocks         Decimal  @default(0)
-  defaultFd             Decimal  @default(0)
+  defaultFd             Json     @default("{\"amount\":0,\"quantity\":0}")
+  defaultGoalPayments   Json?
   defaultSavings        Decimal  @default(0)
   defaultStash          Decimal  @default(0)
   defaultBills          Decimal  @default(0)

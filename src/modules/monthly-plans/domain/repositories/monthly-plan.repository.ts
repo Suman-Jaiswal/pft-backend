@@ -6,6 +6,7 @@ export interface IMonthlyPlanRepository {
   listByTenant(tenantId: string): Promise<MonthlyPlan[]>
   findCurrent(tenantId: string, month: number, year: number): Promise<MonthlyPlan | null>
   runInTransaction<T>(fn: (ctx: {
+    transaction: Prisma.TransactionClient
     upsertMonthlyPlan: (args: {
       tenantId: string
       month: number

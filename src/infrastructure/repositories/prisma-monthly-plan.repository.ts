@@ -22,6 +22,7 @@ export class PrismaMonthlyPlanRepository implements IMonthlyPlanRepository {
 
   runInTransaction<T>(
     fn: (ctx: {
+      transaction: Prisma.TransactionClient
       upsertMonthlyPlan: (args: {
         tenantId: string
         month: number
@@ -33,6 +34,7 @@ export class PrismaMonthlyPlanRepository implements IMonthlyPlanRepository {
   ): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
       return fn({
+        transaction: tx,
         upsertMonthlyPlan: ({ tenantId, month, year, update, create }) =>
           tx.monthlyPlan.upsert({
             where: { tenantId_year_month: { tenantId, year, month } },

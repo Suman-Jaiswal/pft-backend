@@ -17,6 +17,12 @@ function toNum(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+function fdRupees(v: unknown): number {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return toNum(v)
+  const row = v as Record<string, unknown>
+  return toNum(row.amount) * toNum(row.quantity)
+}
+
 function toDate(v: unknown): Date | null {
   if (v instanceof Date) return v
   if (v instanceof Timestamp) return v.toDate()
@@ -57,22 +63,25 @@ async function main(): Promise<void> {
 
   const firestoreTotals = {
     monthlyPlanInvestment: monthlyPlansFs.reduce(
-      (a, r) => a + toNum(r.data.stocks ?? r.data.investment) + toNum(r.data.fd),
+      (a, r) => a + toNum(r.data.stocks ?? r.data.investment) + fdRupees(r.data.fd),
       0,
     ),
     latestBillsTotalDue: latestBillsFs.reduce((a, r) => a + toNum(r.data.totalAmountDue ?? r.data.total_amount_due), 0),
     txAmount: txFs.reduce((a, r) => a + toNum(r.data.amount), 0),
   }
 
-  const dbTotalsRaw = await Promise.all([
-    prisma.monthlyPlan.aggregate({ where: { tenantId: uid }, _sum: { stocks: true, fd: true } }),
+  const [monthlyPlanRows, statementTotal, transactionTotal] = await Promise.all([
+    prisma.monthlyPlan.findMany({ where: { tenantId: uid }, select: { stocks: true, fd: true } }),
     prisma.statement.aggregate({ where: { tenantId: uid }, _sum: { totalAmountDue: true } }),
     prisma.transaction.aggregate({ where: { tenantId: uid }, _sum: { amount: true } }),
   ])
   const dbTotals = {
-    monthlyPlanInvestment: Number(dbTotalsRaw[0]._sum.stocks ?? 0) + Number(dbTotalsRaw[0]._sum.fd ?? 0),
-    latestBillsTotalDue: Number(dbTotalsRaw[1]._sum.totalAmountDue ?? 0),
-    txAmount: Number(dbTotalsRaw[2]._sum.amount ?? 0),
+    monthlyPlanInvestment: monthlyPlanRows.reduce(
+      (sum, row) => sum + Number(row.stocks) + fdRupees(row.fd),
+      0,
+    ),
+    latestBillsTotalDue: Number(statementTotal._sum.totalAmountDue ?? 0),
+    txAmount: Number(transactionTotal._sum.amount ?? 0),
   }
 
   const report = {

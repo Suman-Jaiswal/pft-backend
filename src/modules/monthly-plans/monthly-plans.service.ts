@@ -7,6 +7,7 @@ import {
 } from '@/modules/monthly-plans/domain/repositories/monthly-plan.repository'
 import { z } from 'zod'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
+import { FdLedgerService } from '@/modules/fd-ledger/fd-ledger.service'
 
 const loanPaymentSchema = z.object({
   id: z.string().trim().min(1),
@@ -20,6 +21,7 @@ const customExpenseSchema = z.object({
 })
 
 const loanPaymentsArraySchema = z.array(loanPaymentSchema)
+const goalPaymentsArraySchema = z.array(loanPaymentSchema)
 const customExpensesArraySchema = z.array(customExpenseSchema)
 const banksSchema = z.record(z.string(), z.number().finite())
 
@@ -28,11 +30,19 @@ export class MonthlyPlansService {
   constructor(
     @Inject(MONTHLY_PLAN_REPOSITORY) private readonly repository: IMonthlyPlanRepository,
     private readonly prisma: PrismaService,
+    private readonly fdLedger: FdLedgerService,
   ) {}
 
   private normalizeLoanPayments(items: unknown): Array<{ id: string; name: string; amount: number }> {
     if (!Array.isArray(items)) return []
     return loanPaymentsArraySchema.safeParse(items).success
+      ? (items as Array<{ id: string; name: string; amount: number }>)
+      : []
+  }
+
+  private normalizeGoalPayments(items: unknown): Array<{ id: string; name: string; amount: number }> {
+    if (!Array.isArray(items)) return []
+    return goalPaymentsArraySchema.safeParse(items).success
       ? (items as Array<{ id: string; name: string; amount: number }>)
       : []
   }
@@ -64,7 +74,7 @@ export class MonthlyPlansService {
   }
 
   async getDashboardSummary(tenantId: string) {
-    const [plans, settings, activeLoans] = await Promise.all([
+    const [plans, settings, activeLoans, fdSummary] = await Promise.all([
       this.repository.listByTenant(tenantId),
       this.prisma.pftSetting.findFirst({ where: { tenantId } }),
       this.prisma.loan.findMany({
@@ -81,6 +91,7 @@ export class MonthlyPlansService {
           createdAt: true,
         },
       }),
+      this.fdLedger.summarize(tenantId),
     ])
 
     const currentDate = new Date()
@@ -91,7 +102,6 @@ export class MonthlyPlansService {
     const paidByLoanId: Record<string, number> = {}
     let totalStash = 0
     let totalPositiveSavings = 0
-    let totalPositiveFd = 0
     let totalStocks = 0
     let totalSipMf = 0
     let totalDeficitWithdrawals = 0
@@ -99,11 +109,12 @@ export class MonthlyPlansService {
     for (const plan of plans) {
       totalStash += Number(plan.stash ?? 0)
       const savings = Number(plan.savings ?? 0)
-      const fd = Number(plan.fd ?? 0)
+      const fd = this.fdLedger.normalizePacket(plan.fd)
       const stocks = Number(plan.stocks ?? 0)
       const sipMf = Number(plan.sipMf ?? 0)
-      totalPositiveSavings += Math.max(0, savings)
-      totalPositiveFd += Math.max(0, fd)
+      const goalPayments = this.normalizeGoalPayments(plan.goalPayments as unknown)
+        .reduce((sum, row) => sum + Number(row.amount ?? 0), 0)
+      totalPositiveSavings += Math.max(0, savings) + Math.max(0, goalPayments)
       totalStocks += stocks
       totalSipMf += sipMf
 
@@ -120,8 +131,9 @@ export class MonthlyPlansService {
         loanPayments +
         customExpenses
       const investment = Math.max(0, stocks + sipMf)
-      const liquid = Math.max(0, savings + fd)
-      const deficit = Math.max(0, expenses + investment + liquid - income)
+      const liquid = Math.max(0, savings + Number(plan.stash ?? 0) + goalPayments)
+      const fdOut = fd.amount * fd.quantity
+      const deficit = Math.max(0, expenses + investment + liquid + fdOut - income)
       totalDeficitWithdrawals += deficit
 
       for (const entry of this.normalizeLoanPayments(plan.loanPayments as unknown)) {
@@ -134,8 +146,9 @@ export class MonthlyPlansService {
     const prevInvestment = Number(settings?.prevInvestmentBalance ?? 0)
     const stashDeductions = Number(settings?.stashDeductions ?? 0)
 
-    const cashLike = prevLiquid + totalPositiveSavings - totalDeficitWithdrawals
-    const fd = totalPositiveFd
+    const cashLike =
+      prevLiquid + totalPositiveSavings + fdSummary.brokenFdRupees - totalDeficitWithdrawals
+    const fd = fdSummary.fdBalance
     const liquid = cashLike + fd
     const stocks = prevInvestment + totalStocks
     const mf = totalSipMf
@@ -164,6 +177,12 @@ export class MonthlyPlansService {
         deductions: stashDeductions,
         balance: totalStash - stashDeductions,
       },
+      fd: {
+        remainingPackets: fdSummary.remainingPackets,
+        balance: fdSummary.fdBalance,
+        brokenRupees: fdSummary.brokenFdRupees,
+        lots: fdSummary.lots,
+      },
       loans: {
         activeLoans: activeLoans.map((loan) => ({
           id: loan.id,
@@ -185,6 +204,7 @@ export class MonthlyPlansService {
   async upsert(tenantId: string, actorId: string, dto: UpsertMonthlyPlanDto) {
     return this.repository.runInTransaction(async (tx) => {
       const mergedCustomExpenses = this.normalizeCustomExpenses(dto.customExpenses ?? [])
+      const fd = dto.fd === undefined ? undefined : this.fdLedger.normalizePacket(dto.fd)
 
       const updateData: Prisma.MonthlyPlanUpdateInput = {
           rent: dto.rent,
@@ -196,8 +216,12 @@ export class MonthlyPlansService {
             dto.loanPayments === undefined
               ? undefined
               : this.normalizeLoanPayments(dto.loanPayments) as never,
+          goalPayments:
+            dto.goalPayments === undefined
+              ? undefined
+              : this.normalizeGoalPayments(dto.goalPayments) as never,
           stocks: dto.stocks,
-          fd: dto.fd,
+          fd: fd as Prisma.InputJsonValue | undefined,
           savings: dto.savings,
           stash: dto.stash,
           otherExpenses: dto.otherExpenses,
@@ -218,8 +242,9 @@ export class MonthlyPlansService {
           bills: dto.bills ?? 0,
           basicCcSpent: dto.basicCcSpent ?? 0,
           loanPayments: this.normalizeLoanPayments(dto.loanPayments ?? []) as never,
+          goalPayments: this.normalizeGoalPayments(dto.goalPayments ?? []) as never,
           stocks: dto.stocks ?? 0,
-          fd: dto.fd ?? 0,
+          fd: (fd ?? { amount: 0, quantity: 0 }) as Prisma.InputJsonValue,
           savings: dto.savings ?? 0,
           stash: dto.stash ?? 0,
           otherExpenses: dto.otherExpenses ?? 0,
@@ -238,6 +263,14 @@ export class MonthlyPlansService {
         update: updateData,
         create: createData,
       })
+      await this.fdLedger.syncContribution(
+        tenantId,
+        actorId,
+        dto.year,
+        dto.month,
+        this.fdLedger.normalizePacket(saved.fd),
+        tx.transaction,
+      )
       return saved
     })
   }

@@ -4,6 +4,18 @@ import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { PftSettingEntity } from '@/modules/settings/domain/entities/pft-setting.entity'
 import { IPftSettingRepository } from '@/modules/settings/domain/repositories/pft-setting.repository'
 
+function fdPacket(value: unknown): { amount: number; quantity: number } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { amount: 0, quantity: 0 }
+  const row = value as Record<string, unknown>
+  return { amount: Number(row.amount) || 0, quantity: Number(row.quantity) || 0 }
+}
+
+function goalPayments(value: unknown): Array<{ id: string; name: string; amount: number }> {
+  return Array.isArray(value)
+    ? (value as Array<{ id: string; name: string; amount: number }>)
+    : []
+}
+
 function toEntity(row: PftSetting): PftSettingEntity {
   return new PftSettingEntity(
     row.id,
@@ -20,7 +32,8 @@ function toEntity(row: PftSetting): PftSettingEntity {
     Number(row.defaultLoanRepayment),
     Number(row.defaultSipMf),
     Number(row.defaultStocks),
-    Number(row.defaultFd),
+    fdPacket(row.defaultFd),
+    goalPayments(row.defaultGoalPayments),
     Number(row.defaultSavings),
     Number(row.defaultStash),
     Number(row.defaultBills),
@@ -61,6 +74,7 @@ export class PrismaPftSettingRepository implements IPftSettingRepository {
         defaultSipMf: setting.defaultSipMf,
         defaultStocks: setting.defaultStocks,
         defaultFd: setting.defaultFd,
+        defaultGoalPayments: setting.defaultGoalPayments,
         defaultSavings: setting.defaultSavings,
         defaultStash: setting.defaultStash,
         defaultBills: setting.defaultBills,
@@ -90,6 +104,7 @@ export class PrismaPftSettingRepository implements IPftSettingRepository {
         defaultSipMf: setting.defaultSipMf,
         defaultStocks: setting.defaultStocks,
         defaultFd: setting.defaultFd,
+        defaultGoalPayments: setting.defaultGoalPayments,
         defaultSavings: setting.defaultSavings,
         defaultStash: setting.defaultStash,
         defaultBills: setting.defaultBills,

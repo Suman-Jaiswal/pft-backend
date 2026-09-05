@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
-import { IsArray, IsNumber, IsOptional, IsString } from 'class-validator'
+import { IsArray, IsNumber, IsObject, IsOptional, IsString } from 'class-validator'
 
 export class UpdatePftSettingsDto {
   @ApiPropertyOptional({ default: 'INR' })
@@ -14,7 +14,8 @@ export class UpdatePftSettingsDto {
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultLoanRepayment?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultSipMf?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultStocks?: number
-  @ApiPropertyOptional() @IsNumber() @IsOptional() defaultFd?: number
+  @ApiPropertyOptional() @IsObject() @IsOptional() defaultFd?: { amount: number; quantity: number }
+  @ApiPropertyOptional({ type: 'array' }) @IsArray() @IsOptional() defaultGoalPayments?: unknown[]
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultSavings?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultStash?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultBills?: number

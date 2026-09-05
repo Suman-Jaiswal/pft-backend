@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
 import { RolesGuard } from '@/shared/auth/roles.guard'
@@ -11,6 +11,7 @@ import { ListPftBaselinesQueryDto } from '@/modules/settings/presentation/dto/li
 import { CreatePftBaselineDto } from '@/modules/settings/presentation/dto/create-pft-baseline.dto'
 import { GetPftBaselineQueryDto } from '@/modules/settings/presentation/dto/get-pft-baseline.query.dto'
 import { DeductStashDto } from '@/modules/settings/presentation/dto/deduct-stash.dto'
+import { BreakFdDto } from '@/modules/settings/presentation/dto/break-fd.dto'
 
 type ReqUser = { user: { sub: string; tenantId: string } }
 
@@ -74,6 +75,34 @@ export class SettingsController {
   @ApiOperation({ summary: 'Deduct stash [AUTH: JWT]' })
   async deductStash(@Req() req: ReqUser, @Body() dto: DeductStashDto) {
     return ok(await this.settingsService.deductStash(req.user.tenantId, req.user.sub, dto.amount))
+  }
+
+  @Post('fd/break')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Break FD packets [AUTH: JWT]' })
+  async breakFd(@Req() req: ReqUser, @Body() dto: BreakFdDto) {
+    return ok(
+      await this.settingsService.breakFd(
+        req.user.tenantId,
+        req.user.sub,
+        dto.quantity,
+        dto.amount,
+      ),
+    )
+  }
+
+  @Get('fd/transactions')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'List FD packet transactions [AUTH: JWT]' })
+  async listFdTransactions(@Req() req: ReqUser) {
+    return ok(await this.settingsService.listFdTransactions(req.user.tenantId))
+  }
+
+  @Delete('fd/break/:entryId')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Undo an FD packet break [AUTH: JWT]' })
+  async undoFdBreak(@Req() req: ReqUser, @Param('entryId') entryId: string) {
+    return ok(await this.settingsService.undoFdBreak(req.user.tenantId, entryId))
   }
 
   @Get('stash/balance')

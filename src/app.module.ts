@@ -13,17 +13,21 @@ import { MonthlyPlansModule } from '@/modules/monthly-plans/monthly-plans.module
 import { BillsModule } from '@/modules/bills/bills.module'
 import { LoansModule } from '@/modules/loans/loans.module'
 import { ImportJobsModule } from '@/modules/import-jobs/import-jobs.module'
+import { GoalsModule } from '@/modules/goals/goals.module'
+import { FdLedgerModule } from '@/modules/fd-ledger/fd-ledger.module'
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     PrismaModule,
+    FdLedgerModule,
     AuthModule,
     UsersModule,
     SettingsModule,
     MonthlyPlansModule,
     BillsModule,
     LoansModule,
+    GoalsModule,
     CardsModule,
     StatementsModule,
     TransactionsModule,

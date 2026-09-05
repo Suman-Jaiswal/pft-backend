@@ -8,6 +8,8 @@ import {
   PFT_SETTING_REPOSITORY,
 } from '@/modules/settings/domain/repositories/pft-setting.repository'
 import { UpdatePftSettingsDto } from '@/modules/settings/presentation/dto/update-pft-settings.dto'
+import { FdLedgerService, type FdLot } from '@/modules/fd-ledger/fd-ledger.service'
+import { coerceFdPacket } from '@/modules/fd-ledger/fd-packet'
 
 export type PftBaselineRow = {
   id: string
@@ -23,6 +25,10 @@ export type PftBaselineRow = {
 
 export type PftSettingsWithComputedStash = PftSettingEntity & {
   computedStashBalance: number
+  computedFdBalance: number
+  remainingFdPackets: number
+  brokenFdRupees: number
+  fdLots: FdLot[]
 }
 
 export type DeductStashResult = {
@@ -43,6 +49,7 @@ export class SettingsService {
   constructor(
     @Inject(PFT_SETTING_REPOSITORY) private readonly repository: IPftSettingRepository,
     private readonly prisma: PrismaService,
+    private readonly fdLedger: FdLedgerService,
   ) {}
 
   async getPftSettings(tenantId: string): Promise<PftSettingEntity> {
@@ -57,7 +64,10 @@ export class SettingsService {
       'system',
       'system',
       'INR',
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0,
+      { amount: 0, quantity: 0 },
+      [],
+      0, 0, 0, 0, 0, 0, 0, 0,
       null,
       1,
       null,
@@ -71,14 +81,21 @@ export class SettingsService {
 
   async getPftSettingsWithComputedStash(tenantId: string): Promise<PftSettingsWithComputedStash> {
     const settings = await this.getPftSettings(tenantId)
-    const aggregate = await this.prisma.monthlyPlan.aggregate({
-      where: { tenantId },
-      _sum: { stash: true },
-    })
+    const [aggregate, fdSummary] = await Promise.all([
+      this.prisma.monthlyPlan.aggregate({
+        where: { tenantId },
+        _sum: { stash: true },
+      }),
+      this.fdLedger.summarize(tenantId),
+    ])
     const totalStash = Number(aggregate._sum.stash ?? 0)
     return {
       ...settings,
       computedStashBalance: totalStash - Number(settings.stashDeductions ?? 0),
+      computedFdBalance: fdSummary.fdBalance,
+      remainingFdPackets: fdSummary.remainingPackets,
+      brokenFdRupees: fdSummary.brokenFdRupees,
+      fdLots: fdSummary.lots,
     }
   }
 
@@ -103,7 +120,10 @@ export class SettingsService {
       dto.defaultLoanRepayment ?? current.defaultLoanRepayment,
       dto.defaultSipMf ?? current.defaultSipMf,
       dto.defaultStocks ?? current.defaultStocks,
-      dto.defaultFd ?? current.defaultFd,
+      dto.defaultFd === undefined ? current.defaultFd : this.fdLedger.normalizePacket(dto.defaultFd),
+      dto.defaultGoalPayments === undefined
+        ? current.defaultGoalPayments
+        : this.normalizeGoalPayments(dto.defaultGoalPayments),
       dto.defaultSavings ?? current.defaultSavings,
       dto.defaultStash ?? current.defaultStash,
       dto.defaultBills ?? current.defaultBills,
@@ -124,7 +144,14 @@ export class SettingsService {
           loanRepayment: dto.defaultLoanRepayment ?? current.defaultLoanRepayment,
           sipMf: dto.defaultSipMf ?? current.defaultSipMf,
           stocks: dto.defaultStocks ?? current.defaultStocks,
-          fd: dto.defaultFd ?? current.defaultFd,
+          fd:
+            dto.defaultFd === undefined
+              ? current.defaultFd
+              : this.fdLedger.normalizePacket(dto.defaultFd),
+          goalPayments:
+            dto.defaultGoalPayments === undefined
+              ? current.defaultGoalPayments
+              : this.normalizeGoalPayments(dto.defaultGoalPayments),
           savings: dto.defaultSavings ?? current.defaultSavings,
           stash: dto.defaultStash ?? current.defaultStash,
           bills: dto.defaultBills ?? current.defaultBills,
@@ -172,6 +199,7 @@ export class SettingsService {
       current.defaultSipMf,
       current.defaultStocks,
       current.defaultFd,
+      current.defaultGoalPayments,
       current.defaultSavings,
       current.defaultStash,
       current.defaultBills,
@@ -191,6 +219,7 @@ export class SettingsService {
         sipMf: current.defaultSipMf,
         stocks: current.defaultStocks,
         fd: current.defaultFd,
+        goalPayments: current.defaultGoalPayments,
         savings: current.defaultSavings,
         stash: current.defaultStash,
         bills: current.defaultBills,
@@ -203,6 +232,18 @@ export class SettingsService {
     )
     const setting = await this.repository.upsert(updated)
     return { setting, appliedDeduction }
+  }
+
+  breakFd(tenantId: string, actorId: string, quantity: number, amount?: number) {
+    return this.fdLedger.breakPackets(tenantId, actorId, quantity, amount)
+  }
+
+  listFdTransactions(tenantId: string) {
+    return this.fdLedger.listTransactions(tenantId)
+  }
+
+  undoFdBreak(tenantId: string, entryId: string) {
+    return this.fdLedger.undoBreak(tenantId, entryId)
   }
 
   async listBaselines(tenantId: string, periodKey?: string): Promise<PftBaselineRow[]> {
@@ -302,6 +343,25 @@ export class SettingsService {
     return numeric > 0 ? numeric : 0
   }
 
+  private normalizeGoalPayments(
+    value: unknown,
+  ): Array<{ id: string; name: string; amount: number }> {
+    if (!Array.isArray(value)) throw new BadRequestException('defaultGoalPayments must be an array.')
+    return value.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new BadRequestException('Invalid goal payment.')
+      }
+      const row = item as Record<string, unknown>
+      const id = typeof row.id === 'string' ? row.id.trim() : ''
+      const name = typeof row.name === 'string' ? row.name.trim() : ''
+      const amount = Number(row.amount)
+      if (!id || !name || !Number.isFinite(amount) || amount < 0) {
+        throw new BadRequestException('Invalid goal payment.')
+      }
+      return { id, name, amount }
+    })
+  }
+
   private normalizePlanDefaultSlates(
     raw: unknown,
     defaults: {
@@ -312,13 +372,14 @@ export class SettingsService {
       loanRepayment: number
       sipMf: number
       stocks: number
-      fd: number
+      fd: { amount: number; quantity: number }
+      goalPayments: Array<{ id: string; name: string; amount: number }>
       savings: number
       stash: number
       bills: number
       otherExpenses: number
     },
-  ): Array<{ id: string; name: string; serial: number; defaults: Record<string, number> }> {
+  ): Array<{ id: string; name: string; serial: number; defaults: Record<string, unknown> }> {
     const fallback = {
       id: 'ins-0',
       name: 'ins-0',
@@ -326,7 +387,7 @@ export class SettingsService {
       defaults: { ...defaults },
     }
     if (!Array.isArray(raw) || raw.length === 0) return [fallback]
-    const out: Array<{ id: string; name: string; serial: number; defaults: Record<string, number> }> = []
+    const out: Array<{ id: string; name: string; serial: number; defaults: Record<string, unknown> }> = []
     for (const item of raw.slice(0, MAX_PLAN_DEFAULT_SLATES)) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) continue
       const row = item as Record<string, unknown>
@@ -350,7 +411,14 @@ export class SettingsService {
           loanRepayment: toFiniteNumber(sourceDefaults.loanRepayment ?? defaults.loanRepayment),
           sipMf: toFiniteNumber(sourceDefaults.sipMf ?? defaults.sipMf),
           stocks: toFiniteNumber(sourceDefaults.stocks ?? defaults.stocks),
-          fd: toFiniteNumber(sourceDefaults.fd ?? defaults.fd),
+          fd:
+            sourceDefaults.fd === undefined
+              ? defaults.fd
+              : coerceFdPacket(sourceDefaults.fd),
+          goalPayments:
+            sourceDefaults.goalPayments === undefined
+              ? defaults.goalPayments
+              : this.normalizeGoalPayments(sourceDefaults.goalPayments),
           savings: toFiniteNumber(sourceDefaults.savings ?? defaults.savings),
           stash: toFiniteNumber(sourceDefaults.stash ?? defaults.stash),
           bills: toFiniteNumber(sourceDefaults.bills ?? defaults.bills),
