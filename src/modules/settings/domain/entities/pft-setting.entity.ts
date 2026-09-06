@@ -24,7 +24,8 @@ export class PftSettingEntity extends BaseEntity {
     public readonly defaultBasicExpenses: number,
     public readonly defaultOtherExpenses: number,
     public readonly prevLiquidBalance: number,
-    public readonly prevInvestmentBalance: number,
+    public readonly prevMfBalance: number,
+    public readonly prevStocksBalance: number,
     public readonly stashDeductions: number,
     public readonly dashboardYearRange: string | null,
     public readonly dashboardBaselineVersion: number,
@@ -35,5 +36,8 @@ export class PftSettingEntity extends BaseEntity {
     public readonly importGmailTokenUpdatedAt: Date | null,
   ) {
     super(id, tenantId, createdAt, updatedAt, createdBy, updatedBy)
+    this.prevInvestmentBalance = prevMfBalance + prevStocksBalance
   }
+
+  public readonly prevInvestmentBalance: number
 }

@@ -60,10 +60,10 @@ describe('InvestmentsService', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     prisma.monthlyPlan.findMany.mockResolvedValue(plans)
-    prisma.pftSetting.findFirst.mockResolvedValue({ prevInvestmentBalance: 10_000 })
+    prisma.pftSetting.findFirst.mockResolvedValue({ prevMfBalance: 0, prevStocksBalance: 10_000 })
     prisma.investmentSale.findMany.mockResolvedValue(sales)
     tx.monthlyPlan.findMany.mockResolvedValue(plans)
-    tx.pftSetting.findFirst.mockResolvedValue({ prevInvestmentBalance: 10_000 })
+    tx.pftSetting.findFirst.mockResolvedValue({ prevMfBalance: 0, prevStocksBalance: 10_000 })
     tx.investmentSale.findMany.mockResolvedValue(sales)
   })
 
@@ -74,6 +74,18 @@ describe('InvestmentsService', () => {
       soldMfRupees: 1_000,
       soldStocksRupees: 4_000,
       investmentBalance: 15_000,
+    })
+  })
+
+  it('includes opening MF in the current MF balance', async () => {
+    prisma.pftSetting.findFirst.mockResolvedValue({ prevMfBalance: 2_000, prevStocksBalance: 10_000 })
+
+    await expect(service.summarize('tenant-1')).resolves.toEqual({
+      mfBalance: 8_000,
+      stocksBalance: 9_000,
+      soldMfRupees: 1_000,
+      soldStocksRupees: 4_000,
+      investmentBalance: 17_000,
     })
   })
 
@@ -248,7 +260,11 @@ describe('InvestmentsService', () => {
     ])
 
     await expect(
-      service.lockAndValidateOpeningBalance('tenant-1', 1_000, tx as never),
+      service.lockAndValidateOpeningBalance(
+        'tenant-1',
+        { prevMfBalance: 0, prevStocksBalance: 1_000 },
+        tx as never,
+      ),
     ).rejects.toBeInstanceOf(BadRequestException)
     expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(
       'SELECT pg_advisory_xact_lock(hashtext($1))',
@@ -257,6 +273,21 @@ describe('InvestmentsService', () => {
     expect(tx.$executeRawUnsafe.mock.invocationCallOrder[0]).toBeLessThan(
       tx.monthlyPlan.findMany.mock.invocationCallOrder[0],
     )
+  })
+
+  it('rejects an opening MF balance that would reduce MF below already-sold rupees', async () => {
+    tx.monthlyPlan.findMany.mockResolvedValue([
+      { year: 2026, month: 1, sipMf: 1_000, stocks: 0 },
+    ])
+    tx.investmentSale.findMany.mockResolvedValue([{ assetType: 'MF', amount: 2_001 }])
+
+    await expect(
+      service.lockAndValidateOpeningBalance(
+        'tenant-1',
+        { prevMfBalance: 1_000, prevStocksBalance: 0 },
+        tx as never,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException)
   })
 
   it('rejects a plan edit that would reduce MF purchases below already-sold rupees', async () => {

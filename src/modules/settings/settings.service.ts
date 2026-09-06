@@ -69,7 +69,7 @@ export class SettingsService {
       0, 0, 0, 0, 0, 0, 0,
       { amount: 0, quantity: 0 },
       [],
-      0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0,
       null,
       1,
       null,
@@ -132,7 +132,13 @@ export class SettingsService {
       dto.defaultBasicExpenses ?? current.defaultBasicExpenses,
       dto.defaultOtherExpenses ?? current.defaultOtherExpenses,
       dto.prevLiquidBalance ?? current.prevLiquidBalance,
-      dto.prevInvestmentBalance ?? current.prevInvestmentBalance,
+      dto.prevMfBalance ?? current.prevMfBalance,
+      dto.prevStocksBalance ??
+        (dto.prevMfBalance === undefined &&
+        dto.prevStocksBalance === undefined &&
+        dto.prevInvestmentBalance !== undefined
+          ? dto.prevInvestmentBalance
+          : current.prevStocksBalance),
       dto.stashDeductions ?? current.stashDeductions,
       dto.dashboardYearRange ?? current.dashboardYearRange,
       dto.dashboardBaselineVersion ?? current.dashboardBaselineVersion,
@@ -165,12 +171,18 @@ export class SettingsService {
       current.importGmailScope,
       current.importGmailTokenUpdatedAt,
     )
-    const nextPrevInvestmentBalance = dto.prevInvestmentBalance
-    if (nextPrevInvestmentBalance !== undefined) {
+    const openingChanged =
+      dto.prevMfBalance !== undefined ||
+      dto.prevStocksBalance !== undefined ||
+      dto.prevInvestmentBalance !== undefined
+    if (openingChanged) {
       return this.repository.runInTransaction(async ({ transaction, upsert }) => {
         await this.investments.lockAndValidateOpeningBalance(
           tenantId,
-          nextPrevInvestmentBalance,
+          {
+            prevMfBalance: updated.prevMfBalance,
+            prevStocksBalance: updated.prevStocksBalance,
+          },
           transaction,
         )
         return upsert(updated)
@@ -219,7 +231,8 @@ export class SettingsService {
       current.defaultBasicExpenses,
       current.defaultOtherExpenses,
       current.prevLiquidBalance,
-      current.prevInvestmentBalance,
+      current.prevMfBalance,
+      current.prevStocksBalance,
       nextDeductions,
       current.dashboardYearRange,
       current.dashboardBaselineVersion,

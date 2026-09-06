@@ -145,7 +145,7 @@ export class InvestmentsService {
       }),
       tx.pftSetting.findFirst({
         where: { tenantId },
-        select: { prevInvestmentBalance: true },
+        select: { prevMfBalance: true, prevStocksBalance: true },
       }),
       tx.investmentSale.findMany({
         where: { tenantId },
@@ -168,10 +168,10 @@ export class InvestmentsService {
       (sum, sale) => sum + (sale.assetType === 'STOCKS' ? Number(sale.amount) : 0),
       0,
     )
-    if (purchasedMf < soldMf) {
+    if (Number(setting?.prevMfBalance ?? 0) + purchasedMf < soldMf) {
       throw new BadRequestException('Plan edit would reduce MF purchases below already-sold rupees.')
     }
-    const availableStocks = Number(setting?.prevInvestmentBalance ?? 0) + purchasedStocks
+    const availableStocks = Number(setting?.prevStocksBalance ?? 0) + purchasedStocks
     if (availableStocks < soldStocks) {
       throw new BadRequestException(
         'Plan edit would reduce stocks purchases and opening balance below already-sold rupees.',
@@ -181,25 +181,38 @@ export class InvestmentsService {
 
   async lockAndValidateOpeningBalance(
     tenantId: string,
-    nextPrevInvestmentBalance: number,
+    next: { prevMfBalance: number; prevStocksBalance: number },
     tx: Prisma.TransactionClient,
   ): Promise<void> {
     await this.lockTenant(tx, tenantId)
     const [plans, sales] = await Promise.all([
       tx.monthlyPlan.findMany({
         where: { tenantId },
-        select: { stocks: true },
+        select: { sipMf: true, stocks: true },
       }),
       tx.investmentSale.findMany({
-        where: { tenantId, assetType: 'STOCKS' },
-        select: { amount: true },
+        where: { tenantId },
+        select: { assetType: true, amount: true },
       }),
     ])
+    const purchasedMf = plans.reduce((sum, plan) => sum + Number(plan.sipMf), 0)
     const purchasedStocks = plans.reduce((sum, plan) => sum + Number(plan.stocks), 0)
-    const soldStocks = sales.reduce((sum, sale) => sum + Number(sale.amount), 0)
-    if (nextPrevInvestmentBalance + purchasedStocks < soldStocks) {
+    const soldMf = sales.reduce(
+      (sum, sale) => sum + (sale.assetType === 'MF' ? Number(sale.amount) : 0),
+      0,
+    )
+    const soldStocks = sales.reduce(
+      (sum, sale) => sum + (sale.assetType === 'STOCKS' ? Number(sale.amount) : 0),
+      0,
+    )
+    if (next.prevMfBalance + purchasedMf < soldMf) {
       throw new BadRequestException(
-        'Opening investment balance and stocks purchases cannot be reduced below already-sold rupees.',
+        'Opening MF balance and MF purchases cannot be reduced below already-sold rupees.',
+      )
+    }
+    if (next.prevStocksBalance + purchasedStocks < soldStocks) {
+      throw new BadRequestException(
+        'Opening stocks balance and stocks purchases cannot be reduced below already-sold rupees.',
       )
     }
   }
@@ -223,7 +236,7 @@ export class InvestmentsService {
       }),
       client.pftSetting.findFirst({
         where: { tenantId },
-        select: { prevInvestmentBalance: true },
+        select: { prevMfBalance: true, prevStocksBalance: true },
       }),
       client.investmentSale.findMany({
         where: { tenantId },
@@ -240,9 +253,10 @@ export class InvestmentsService {
       (sum, sale) => sum + (sale.assetType === 'STOCKS' ? Number(sale.amount) : 0),
       0,
     )
-    const mfBalance = purchasedMf - soldMfRupees
+    const mfBalance =
+      Number(setting?.prevMfBalance ?? 0) + purchasedMf - soldMfRupees
     const stocksBalance =
-      Number(setting?.prevInvestmentBalance ?? 0) + purchasedStocks - soldStocksRupees
+      Number(setting?.prevStocksBalance ?? 0) + purchasedStocks - soldStocksRupees
     return {
       mfBalance,
       stocksBalance,

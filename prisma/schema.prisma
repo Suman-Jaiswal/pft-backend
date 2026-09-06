@@ -348,6 +348,8 @@ model PftSetting {
   defaultBasicExpenses  Decimal  @default(0)
   defaultOtherExpenses  Decimal  @default(0)
   prevLiquidBalance     Decimal  @default(0)
+  prevMfBalance         Decimal  @default(0)
+  prevStocksBalance     Decimal  @default(0)
   prevInvestmentBalance Decimal  @default(0)
   stashDeductions       Decimal  @default(0)
   dashboardYearRange    String?

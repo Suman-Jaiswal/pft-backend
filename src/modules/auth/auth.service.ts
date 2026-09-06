@@ -246,6 +246,8 @@ export class AuthService {
         defaultBasicExpenses: 0,
         defaultOtherExpenses: 0,
         prevLiquidBalance: 0,
+        prevMfBalance: 0,
+        prevStocksBalance: 0,
         prevInvestmentBalance: 0,
         stashDeductions: 0,
         dashboardBaselineVersion: 1,

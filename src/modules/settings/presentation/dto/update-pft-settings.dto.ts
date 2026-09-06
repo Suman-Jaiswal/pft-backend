@@ -22,6 +22,8 @@ export class UpdatePftSettingsDto {
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultBasicExpenses?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() defaultOtherExpenses?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() prevLiquidBalance?: number
+  @ApiPropertyOptional() @IsNumber() @IsOptional() prevMfBalance?: number
+  @ApiPropertyOptional() @IsNumber() @IsOptional() prevStocksBalance?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() prevInvestmentBalance?: number
   @ApiPropertyOptional() @IsNumber() @IsOptional() stashDeductions?: number
   @ApiPropertyOptional() @IsString() @IsOptional() dashboardYearRange?: string

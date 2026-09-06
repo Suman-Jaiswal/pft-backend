@@ -29,6 +29,7 @@ function currentSetting(): PftSettingEntity {
     0,
     0,
     0,
+    0,
     10_000,
     0,
     null,
@@ -81,16 +82,36 @@ describe('SettingsService investment opening balance updates', () => {
     expect(repository.runInTransaction).toHaveBeenCalledTimes(1)
     expect(investments.lockAndValidateOpeningBalance).toHaveBeenCalledWith(
       'tenant-1',
-      4_000,
+      { prevMfBalance: 0, prevStocksBalance: 4_000 },
       transaction,
     )
     expect(
       investments.lockAndValidateOpeningBalance.mock.invocationCallOrder[0],
     ).toBeLessThan(transactionalUpsert.mock.invocationCallOrder[0])
     expect(transactionalUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({ prevInvestmentBalance: 4_000 }),
+      expect.objectContaining({ prevMfBalance: 0, prevStocksBalance: 4_000, prevInvestmentBalance: 4_000 }),
     )
     expect(repository.upsert).not.toHaveBeenCalled()
+  })
+
+  it('validates split MF and stocks opening balances under one repository transaction', async () => {
+    await service.updatePftSettings('tenant-1', 'user-2', {
+      prevMfBalance: 1_500,
+      prevStocksBalance: 2_500,
+    })
+
+    expect(investments.lockAndValidateOpeningBalance).toHaveBeenCalledWith(
+      'tenant-1',
+      { prevMfBalance: 1_500, prevStocksBalance: 2_500 },
+      transaction,
+    )
+    expect(transactionalUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prevMfBalance: 1_500,
+        prevStocksBalance: 2_500,
+        prevInvestmentBalance: 4_000,
+      }),
+    )
   })
 
   it('does not add an investment transaction for unrelated settings updates', async () => {
