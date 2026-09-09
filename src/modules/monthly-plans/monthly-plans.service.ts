@@ -44,9 +44,19 @@ export class MonthlyPlansService {
 
   private normalizeGoalPayments(items: unknown): Array<{ id: string; name: string; amount: number }> {
     if (!Array.isArray(items)) return []
-    return goalPaymentsArraySchema.safeParse(items).success
-      ? (items as Array<{ id: string; name: string; amount: number }>)
-      : []
+    const parsed = goalPaymentsArraySchema.safeParse(items)
+    if (parsed.success) return parsed.data
+    const coerced: Array<{ id: string; name: string; amount: number }> = []
+    for (const item of items) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+      const row = item as Record<string, unknown>
+      const id = String(row.id ?? '').trim()
+      const name = String(row.name ?? '').trim()
+      const amount = Number(row.amount ?? 0)
+      if (!id || !Number.isFinite(amount)) continue
+      coerced.push({ id, name: name || id, amount })
+    }
+    return coerced
   }
 
   private normalizeCustomExpenses(items: unknown): Array<{ label: string; amount: number }> {
@@ -76,7 +86,7 @@ export class MonthlyPlansService {
   }
 
   async getDashboardSummary(tenantId: string) {
-    const [plans, settings, activeLoans, fdSummary, investmentSummary] = await Promise.all([
+    const [plans, settings, activeLoans, brokenGoalsSummary, fdSummary, investmentSummary] = await Promise.all([
       this.repository.listByTenant(tenantId),
       this.prisma.pftSetting.findFirst({ where: { tenantId } }),
       this.prisma.loan.findMany({
@@ -93,9 +103,14 @@ export class MonthlyPlansService {
           createdAt: true,
         },
       }),
+      this.prisma.goalLedgerEntry.aggregate({
+        where: { tenantId, kind: 'BREAK' },
+        _sum: { amount: true },
+      }),
       this.fdLedger.summarize(tenantId),
       this.investments.summarize(tenantId),
     ])
+    const brokenGoalsRupees = Number(brokenGoalsSummary._sum.amount ?? 0)
 
     const currentDate = new Date()
     const currentMonth = currentDate.getMonth() + 1
@@ -107,7 +122,7 @@ export class MonthlyPlansService {
     let totalPositiveSavings = 0
     let totalDeficitWithdrawals = 0
     let savingsCash = 0
-    let goalsTotal = 0
+    let goalsFunded = 0
 
     for (const plan of plans) {
       totalStash += Number(plan.stash ?? 0)
@@ -116,10 +131,10 @@ export class MonthlyPlansService {
       const stocks = Number(plan.stocks ?? 0)
       const sipMf = Number(plan.sipMf ?? 0)
       const goalPayments = this.normalizeGoalPayments(plan.goalPayments as unknown)
-        .reduce((sum, row) => sum + Number(row.amount ?? 0), 0)
+        .reduce((sum, row) => sum + Math.max(0, Number(row.amount ?? 0)), 0)
       savingsCash += Math.max(0, savings)
-      goalsTotal += Math.max(0, goalPayments)
-      totalPositiveSavings += Math.max(0, savings) + Math.max(0, goalPayments)
+      goalsFunded += goalPayments
+      totalPositiveSavings += Math.max(0, savings)
 
       const income = Number(plan.salary ?? 0) + Number(plan.otherSources ?? 0)
       const loanPayments = this.normalizeLoanPayments(plan.loanPayments as unknown)
@@ -145,6 +160,7 @@ export class MonthlyPlansService {
       }
     }
 
+    const goalsTotal = Math.max(0, goalsFunded - brokenGoalsRupees)
     const prevLiquid = Number(settings?.prevLiquidBalance ?? 0)
     const stashDeductions = Number(settings?.stashDeductions ?? 0)
     const soldInvestments =
@@ -154,10 +170,11 @@ export class MonthlyPlansService {
       prevLiquid +
       totalPositiveSavings +
       fdSummary.brokenFdRupees +
+      brokenGoalsRupees +
       soldInvestments -
       totalDeficitWithdrawals
     const fd = fdSummary.fdBalance
-    const liquid = cashLike + fd
+    const liquid = cashLike + goalsTotal + fd
     const stocks = investmentSummary.stocksBalance
     const mf = investmentSummary.mfBalance
     const investment = investmentSummary.investmentBalance
@@ -174,6 +191,7 @@ export class MonthlyPlansService {
         cashLike,
         savingsCash,
         goalsTotal,
+        brokenGoals: brokenGoalsRupees,
         fd,
         liquid,
         stocks,

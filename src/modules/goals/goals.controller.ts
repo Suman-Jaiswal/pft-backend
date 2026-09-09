@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '@/modules/auth/jwt-auth.guard'
+import { BreakGoalDto } from '@/modules/goals/dto/break-goal.dto'
 import { UpsertGoalDto } from '@/modules/goals/dto/upsert-goal.dto'
 import { GoalsService } from '@/modules/goals/goals.service'
 import { Role } from '@/shared/auth/role.enum'
@@ -24,6 +25,13 @@ export class GoalsController {
     return ok(await this.service.list(req.user.tenantId))
   }
 
+  @Get('transactions')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'List goal transactions [AUTH: JWT]' })
+  async transactions(@Req() req: ReqUser) {
+    return ok(await this.service.listTransactions(req.user.tenantId))
+  }
+
   @Post()
   @Roles(Role.ADMIN, Role.USER)
   @ApiOperation({ summary: 'Upsert goal [AUTH: JWT]' })
@@ -41,5 +49,23 @@ export class GoalsController {
   ) {
     await this.service.transitionStatus(req.user.tenantId, req.user.sub, id, body.status)
     return ok(true)
+  }
+
+  @Post(':id/break')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Move part of a goal into cash [AUTH: JWT]' })
+  async breakGoal(
+    @Req() req: ReqUser,
+    @Param('id') id: string,
+    @Body() dto: BreakGoalDto,
+  ) {
+    return ok(await this.service.breakGoal(req.user.tenantId, req.user.sub, id, dto))
+  }
+
+  @Delete('breaks/:entryId')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Revert a goal cash move [AUTH: JWT]' })
+  async undoBreak(@Req() req: ReqUser, @Param('entryId') entryId: string) {
+    return ok(await this.service.undoBreak(req.user.tenantId, entryId))
   }
 }

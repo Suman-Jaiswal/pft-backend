@@ -110,6 +110,19 @@ model Goal {
   @@index([tenantId, status], map: "idx_goals_tenant_status")
 }
 
+model GoalLedgerEntry {
+  id        String   @id @default(cuid())
+  tenantId  String
+  goalId    String
+  kind      String
+  amount    Decimal
+  createdAt DateTime @default(now())
+  createdBy String
+
+  @@index([tenantId, goalId, kind], map: "idx_goal_ledger_tenant_goal_kind")
+  @@index([tenantId, kind, createdAt], map: "idx_goal_ledger_tenant_kind_created")
+}
+
 model FdLedgerEntry {
   id            String          @id @default(cuid())
   tenantId      String

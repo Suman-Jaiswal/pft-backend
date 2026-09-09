@@ -39,6 +39,7 @@ describe('MonthlyPlansService', () => {
   const prisma = {
     pftSetting: { findFirst: jest.fn() },
     loan: { findMany: jest.fn() },
+    goalLedgerEntry: { aggregate: jest.fn() },
   }
   const fdLedger = {
     summarize: jest.fn(),
@@ -68,6 +69,7 @@ describe('MonthlyPlansService', () => {
       stashDeductions: 0,
     })
     prisma.loan.findMany.mockResolvedValue([])
+    prisma.goalLedgerEntry.aggregate.mockResolvedValue({ _sum: { amount: 0 } })
     fdLedger.summarize.mockResolvedValue({
       remainingPackets: 0,
       fdBalance: 0,
@@ -83,7 +85,7 @@ describe('MonthlyPlansService', () => {
     })
   })
 
-  it('treats positive goalPayments as cashLike savings and keeps them in deficit math', async () => {
+  it('keeps goalPayments out of cashLike and still uses them in deficit math', async () => {
     repository.listByTenant.mockResolvedValue([
       basePlan({
         savings: 0,
@@ -98,8 +100,8 @@ describe('MonthlyPlansService', () => {
 
     const covered = await service.getDashboardSummary('tenant-1')
 
-    // Goals (₹10k) must land in cashLike; stash stays in its own bucket.
-    expect(covered.corpus.cashLike).toBe(10_000)
+    // Goals stay in their own bucket; cashLike is the free buffer only.
+    expect(covered.corpus.cashLike).toBe(0)
     expect(covered.corpus.savingsCash).toBe(0)
     expect(covered.corpus.goalsTotal).toBe(10_000)
     expect(covered.corpus.liquid).toBe(10_000)
@@ -119,11 +121,60 @@ describe('MonthlyPlansService', () => {
     const deficitCase = await service.getDashboardSummary('tenant-1')
 
     // liquid out = 10_000 goals → deficit vs ₹5_000 income = 5_000
-    // cashLike = +10_000 goals − 5_000 deficit = 5_000 (not −5_000)
+    // cashLike is not topped up by goals, so the deficit hits the free buffer.
     expect(deficitCase.corpus.deficitWithdrawals).toBe(5_000)
-    expect(deficitCase.corpus.cashLike).toBe(5_000)
+    expect(deficitCase.corpus.goalsTotal).toBe(10_000)
+    expect(deficitCase.corpus.cashLike).toBe(-5_000)
     expect(deficitCase.corpus.liquid).toBe(5_000)
     expect(deficitCase.stash.balance).toBe(0)
+  })
+
+  it('still counts goalPayments when amounts are stored as strings', async () => {
+    repository.listByTenant.mockResolvedValue([
+      basePlan({
+        savings: 0,
+        goalPayments: [
+          { id: 'goal-1', name: 'Emergency', amount: '7000' },
+          { id: 'goal-2', name: 'Travel', amount: 3_000 },
+        ],
+      }),
+    ] as never)
+    prisma.pftSetting.findFirst.mockResolvedValue({
+      prevLiquidBalance: 40_000,
+      prevInvestmentBalance: 0,
+      stashDeductions: 0,
+    })
+
+    const summary = await service.getDashboardSummary('tenant-1')
+
+    expect(summary.corpus.goalsTotal).toBe(10_000)
+    expect(summary.corpus.savingsCash).toBe(0)
+    expect(summary.corpus.cashLike).toBe(40_000)
+  })
+
+  it('moves a partial goal break into cashLike and leaves the rest in goals', async () => {
+    repository.listByTenant.mockResolvedValue([
+      basePlan({
+        savings: 5_000,
+        goalPayments: [
+          { id: 'goal-live', name: 'Travel', amount: 3_000 },
+          { id: 'goal-broke', name: 'Emergency', amount: 8_000 },
+        ],
+      }),
+    ] as never)
+    prisma.pftSetting.findFirst.mockResolvedValue({
+      prevLiquidBalance: 10_000,
+      prevInvestmentBalance: 0,
+      stashDeductions: 0,
+    })
+    prisma.goalLedgerEntry.aggregate.mockResolvedValue({ _sum: { amount: 3_000 } })
+
+    const summary = await service.getDashboardSummary('tenant-1')
+
+    expect(summary.corpus.goalsTotal).toBe(8_000)
+    expect(summary.corpus.brokenGoals).toBe(3_000)
+    expect(summary.corpus.cashLike).toBe(18_000)
+    expect(summary.corpus.liquid).toBe(26_000)
   })
 
   it('moves investment sale proceeds to cash while conserving total corpus', async () => {
