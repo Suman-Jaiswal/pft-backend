@@ -1,10 +1,10 @@
-FROM node:20-bullseye-slim
+FROM node:20-bookworm-slim
 
 ENV NODE_ENV=production
 WORKDIR /app
 
 # Ensure runtime libs and CA certs are present
-RUN apt-get update && \
+RUN apt-get update -o Acquire::Check-Valid-Until=false && \
     apt-get install -y --no-install-recommends ca-certificates openssl && \
     rm -rf /var/lib/apt/lists/*
 
