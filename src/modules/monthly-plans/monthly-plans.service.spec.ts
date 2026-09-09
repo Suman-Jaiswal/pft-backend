@@ -100,6 +100,8 @@ describe('MonthlyPlansService', () => {
 
     // Goals (₹10k) must land in cashLike; stash stays in its own bucket.
     expect(covered.corpus.cashLike).toBe(10_000)
+    expect(covered.corpus.savingsCash).toBe(0)
+    expect(covered.corpus.goalsTotal).toBe(10_000)
     expect(covered.corpus.liquid).toBe(10_000)
     expect(covered.corpus.total).toBe(10_000)
     expect(covered.corpus.deficitWithdrawals).toBe(0)

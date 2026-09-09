@@ -106,6 +106,8 @@ export class MonthlyPlansService {
     let totalStash = 0
     let totalPositiveSavings = 0
     let totalDeficitWithdrawals = 0
+    let savingsCash = 0
+    let goalsTotal = 0
 
     for (const plan of plans) {
       totalStash += Number(plan.stash ?? 0)
@@ -115,6 +117,8 @@ export class MonthlyPlansService {
       const sipMf = Number(plan.sipMf ?? 0)
       const goalPayments = this.normalizeGoalPayments(plan.goalPayments as unknown)
         .reduce((sum, row) => sum + Number(row.amount ?? 0), 0)
+      savingsCash += Math.max(0, savings)
+      goalsTotal += Math.max(0, goalPayments)
       totalPositiveSavings += Math.max(0, savings) + Math.max(0, goalPayments)
 
       const income = Number(plan.salary ?? 0) + Number(plan.otherSources ?? 0)
@@ -168,6 +172,8 @@ export class MonthlyPlansService {
       currentPlan,
       corpus: {
         cashLike,
+        savingsCash,
+        goalsTotal,
         fd,
         liquid,
         stocks,

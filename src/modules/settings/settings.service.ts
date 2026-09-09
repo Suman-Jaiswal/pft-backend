@@ -11,6 +11,10 @@ import { UpdatePftSettingsDto } from '@/modules/settings/presentation/dto/update
 import { FdLedgerService, type FdLot } from '@/modules/fd-ledger/fd-ledger.service'
 import { coerceFdPacket } from '@/modules/fd-ledger/fd-packet'
 import { InvestmentsService } from '@/modules/investments/investments.service'
+import {
+  isCreatableFiscalHalf,
+  isFiscalHalfLocked,
+} from '@/modules/settings/domain/fiscal-half'
 
 export type PftBaselineRow = {
   id: string
@@ -20,6 +24,7 @@ export type PftBaselineRow = {
   baselineAmount: number | null
   lockedAt: string
   lockedBy: string
+  locked: boolean
   metrics: Record<string, unknown>
   createdAt: string
 }
@@ -277,17 +282,7 @@ export class SettingsService {
       where: periodKey ? { tenantId, periodKey } : { tenantId },
       orderBy: [{ periodKey: 'asc' }, { version: 'asc' }],
     })
-    return rows.map((row) => ({
-      id: row.id,
-      periodKey: row.periodKey,
-      version: row.version,
-      source: row.source,
-      baselineAmount: row.baselineAmount == null ? null : Number(row.baselineAmount),
-      lockedAt: row.lockedAt.toISOString(),
-      lockedBy: row.lockedBy,
-      metrics: this.asMetricsRecord(row.metrics),
-      createdAt: row.createdAt.toISOString(),
-    }))
+    return rows.map((row) => this.toBaselineRow(row))
   }
 
   async createBaseline(
@@ -295,6 +290,9 @@ export class SettingsService {
     actorId: string,
     payload: { periodKey: string; source: string; lockedBy: string; metrics: Record<string, unknown> },
   ): Promise<PftBaselineRow> {
+    if (!isCreatableFiscalHalf(payload.periodKey)) {
+      throw new BadRequestException('Baseline can only be created for the current or next half.')
+    }
     const baselineAmount = this.parseBaselineAmount(payload.metrics.baselineAmount)
     const existing = await this.prisma.pftBaseline.findFirst({
       where: { tenantId, periodKey: payload.periodKey },
@@ -319,17 +317,39 @@ export class SettingsService {
         updatedBy: actorId,
       },
     })
-    return {
-      id: row.id,
-      periodKey: row.periodKey,
-      version: row.version,
-      source: row.source,
-      baselineAmount: row.baselineAmount == null ? null : Number(row.baselineAmount),
-      lockedAt: row.lockedAt.toISOString(),
-      lockedBy: row.lockedBy,
-      metrics: this.asMetricsRecord(row.metrics),
-      createdAt: row.createdAt.toISOString(),
+    return this.toBaselineRow(row)
+  }
+
+  async updateBaseline(
+    tenantId: string,
+    actorId: string,
+    periodKey: string,
+    payload: { source?: string; lockedBy?: string; metrics: Record<string, unknown> },
+  ): Promise<PftBaselineRow> {
+    if (isFiscalHalfLocked(periodKey)) {
+      throw new BadRequestException(`Baseline is locked for period ${periodKey}.`)
     }
+    if (!isCreatableFiscalHalf(periodKey)) {
+      throw new BadRequestException('Baseline can only be edited for the next half.')
+    }
+    const existing = await this.prisma.pftBaseline.findFirst({
+      where: { tenantId, periodKey },
+    })
+    if (!existing) {
+      throw new BadRequestException(`Baseline was not found for period ${periodKey}.`)
+    }
+    const baselineAmount = this.parseBaselineAmount(payload.metrics.baselineAmount)
+    const row = await this.prisma.pftBaseline.update({
+      where: { id: existing.id },
+      data: {
+        source: payload.source ?? existing.source,
+        lockedBy: payload.lockedBy ?? existing.lockedBy,
+        baselineAmount,
+        metrics: payload.metrics as Prisma.InputJsonValue,
+        updatedBy: actorId,
+      },
+    })
+    return this.toBaselineRow(row)
   }
 
   async getBaselineForVersion(
@@ -345,16 +365,31 @@ export class SettingsService {
     const requested = typeof version === 'number' ? rows.find((row) => row.version === version) : null
     const selected = requested ?? rows.find((row) => row.version === 1) ?? rows[0]
     if (!selected) return null
+    return this.toBaselineRow(selected)
+  }
+
+  private toBaselineRow(row: {
+    id: string
+    periodKey: string
+    version: number
+    source: string
+    baselineAmount: unknown
+    lockedAt: Date
+    lockedBy: string
+    metrics: unknown
+    createdAt: Date
+  }): PftBaselineRow {
     return {
-      id: selected.id,
-      periodKey: selected.periodKey,
-      version: selected.version,
-      source: selected.source,
-      baselineAmount: selected.baselineAmount == null ? null : Number(selected.baselineAmount),
-      lockedAt: selected.lockedAt.toISOString(),
-      lockedBy: selected.lockedBy,
-      metrics: this.asMetricsRecord(selected.metrics),
-      createdAt: selected.createdAt.toISOString(),
+      id: row.id,
+      periodKey: row.periodKey,
+      version: row.version,
+      source: row.source,
+      baselineAmount: row.baselineAmount == null ? null : Number(row.baselineAmount),
+      lockedAt: row.lockedAt.toISOString(),
+      lockedBy: row.lockedBy,
+      locked: isFiscalHalfLocked(row.periodKey),
+      metrics: this.asMetricsRecord(row.metrics),
+      createdAt: row.createdAt.toISOString(),
     }
   }
 

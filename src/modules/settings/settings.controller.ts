@@ -9,6 +9,7 @@ import { SettingsService } from '@/modules/settings/settings.service'
 import { UpdatePftSettingsDto } from '@/modules/settings/presentation/dto/update-pft-settings.dto'
 import { ListPftBaselinesQueryDto } from '@/modules/settings/presentation/dto/list-pft-baselines.query.dto'
 import { CreatePftBaselineDto } from '@/modules/settings/presentation/dto/create-pft-baseline.dto'
+import { UpdatePftBaselineDto } from '@/modules/settings/presentation/dto/update-pft-baseline.dto'
 import { GetPftBaselineQueryDto } from '@/modules/settings/presentation/dto/get-pft-baseline.query.dto'
 import { DeductStashDto } from '@/modules/settings/presentation/dto/deduct-stash.dto'
 import { BreakFdDto } from '@/modules/settings/presentation/dto/break-fd.dto'
@@ -53,6 +54,23 @@ export class SettingsController {
         query.periodKey,
         typeof query.version === 'number' ? query.version : undefined,
       ),
+    )
+  }
+
+  @Patch('baselines/:periodKey')
+  @Roles(Role.ADMIN, Role.USER)
+  @ApiOperation({ summary: 'Update an unlocked next-half baseline [AUTH: JWT]' })
+  async updateBaseline(
+    @Req() req: ReqUser,
+    @Param('periodKey') periodKey: string,
+    @Body() dto: UpdatePftBaselineDto,
+  ) {
+    return ok(
+      await this.settingsService.updateBaseline(req.user.tenantId, req.user.sub, periodKey, {
+        source: dto.source,
+        lockedBy: dto.lockedBy,
+        metrics: dto.metrics,
+      }),
     )
   }
 
