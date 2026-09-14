@@ -123,4 +123,33 @@ describe('CardCycleSummaryService', () => {
     expect(summary.cards[0].unsettledAmount).toBe(summary.cards[0].cycleSpend)
     expect(summary.cards[0].unsettledAmount).toBe(2200)
   })
+
+  it('lastMonthStatementTotal sums statements matching exactly the previous calendar month', async () => {
+    // fakeNow = Aug 4, 2026 -> previous month is July ("2026-07"). A card's own
+    // "latest" statement may already be for August (this running month) once
+    // its cycle day has passed - that must NOT be double-counted here; only
+    // statements whose statementMonth is precisely "2026-07" should count.
+    prisma.statement.findMany.mockImplementation(({ where }: { where: { statementMonth?: string } }) => {
+      if (where.statementMonth === '2026-07') {
+        return Promise.resolve([{ totalAmountDue: 4500 }, { totalAmountDue: 1200 }])
+      }
+      return Promise.resolve([
+        {
+          id: 'statement-1',
+          cardId: 'card-1',
+          dueDate: new Date(2026, 7, 20),
+          minimumAmountDue: 100,
+          totalAmountDue: 1000,
+          status: 'DUE',
+          statementSyncMonth: '2026-08',
+          statementMonth: '2026-08',
+        },
+      ])
+    })
+    prisma.transaction.findMany.mockResolvedValue([])
+
+    const summary = await service.getSummary('tenant-1')
+
+    expect(summary.lastMonthStatementTotal).toBe(5700)
+  })
 })
