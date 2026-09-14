@@ -212,9 +212,9 @@ export class CcStatementsImportService {
         select: { id: true, status: true, statementMonth: true },
       })
 
-      if (existingForIntended && /^paid$/i.test((existingForIntended.status ?? '').trim())) {
+      if (existingForIntended) {
         this.logger.log(
-          `[SOURCE_SKIP] card=${source.cardKey} reason=already_paid statementMonth=${intendedMonth} statementId=${existingForIntended.id}`,
+          `[SOURCE_SKIP] card=${source.cardKey} reason=already_exists statementMonth=${intendedMonth} statementId=${existingForIntended.id} status=${existingForIntended.status}`,
         )
         return {
           cardKey: source.cardKey,
@@ -224,7 +224,7 @@ export class CcStatementsImportService {
           updated: 0,
           skipped: 1,
           failed: 0,
-          summary: `Statement for ${intendedMonth} already marked PAID`,
+          summary: `Statement for ${intendedMonth} already exists (${existingForIntended.status})`,
           statementMonth: intendedMonth,
         }
       }
@@ -286,9 +286,9 @@ export class CcStatementsImportService {
         select: { id: true, status: true, statementMonth: true },
       })
 
-      if (existing && /^paid$/i.test((existing.status ?? '').trim())) {
+      if (existing) {
         this.logger.log(
-          `[SOURCE_SKIP] card=${source.cardKey} reason=parsed_month_already_paid statementMonth=${parsed.statementMonth}`,
+          `[SOURCE_SKIP] card=${source.cardKey} reason=parsed_month_already_exists statementMonth=${parsed.statementMonth} status=${existing.status}`,
         )
         return {
           cardKey: source.cardKey,
@@ -298,7 +298,7 @@ export class CcStatementsImportService {
           updated: 0,
           skipped: 1,
           failed: 0,
-          summary: `Statement for ${parsed.statementMonth} already marked PAID`,
+          summary: `Statement for ${parsed.statementMonth} already exists (${existing.status})`,
           statementMonth: parsed.statementMonth,
         }
       }
@@ -315,9 +315,9 @@ export class CcStatementsImportService {
             select: { id: true, status: true, statementMonth: true },
           })
 
-      if (existingLegacyShifted && /^paid$/i.test((existingLegacyShifted.status ?? '').trim())) {
+      if (existingLegacyShifted) {
         this.logger.log(
-          `[SOURCE_SKIP] card=${source.cardKey} reason=legacy_month_already_paid statementMonth=${dueMonth}`,
+          `[SOURCE_SKIP] card=${source.cardKey} reason=legacy_month_already_exists statementMonth=${dueMonth} status=${existingLegacyShifted.status}`,
         )
         return {
           cardKey: source.cardKey,
@@ -327,63 +327,26 @@ export class CcStatementsImportService {
           updated: 0,
           skipped: 1,
           failed: 0,
-          summary: `Statement for ${dueMonth} (legacy) already marked PAID`,
+          summary: `Statement for ${dueMonth} (legacy) already exists (${existingLegacyShifted.status})`,
           statementMonth: dueMonth,
         }
       }
 
-      const targetRow = existing ?? existingLegacyShifted
-      this.logVerbose(source.cardKey, 'SOURCE_DB_DECISION', {
-        existingCurrentMonth: existing,
-        existingLegacyShifted,
-        targetRow,
-        intendedMonth,
-      })
-
+      // At this point every existence check above (intended month, parsed
+      // month, legacy due-month) has passed with no match, so this is always
+      // a fresh insert - sync now relies purely on "does a row exist", not
+      // its status, so there's nothing left to update in place.
       if (dryRun) {
-        this.logger.log(
-          `[SOURCE_DRYRUN] card=${source.cardKey} action=${targetRow ? 'update' : 'insert'} statementMonth=${parsed.statementMonth}`,
-        )
+        this.logger.log(`[SOURCE_DRYRUN] card=${source.cardKey} action=insert statementMonth=${parsed.statementMonth}`)
         return {
           cardKey: source.cardKey,
           labelName: source.labelName,
           flow: source.flow,
-          inserted: targetRow ? 0 : 1,
-          updated: targetRow ? 1 : 0,
+          inserted: 1,
+          updated: 0,
           skipped: 0,
           failed: 0,
-          summary: targetRow ? 'Dry-run update candidate' : 'Dry-run insert candidate',
-          statementMonth: parsed.statementMonth,
-        }
-      }
-
-      if (targetRow) {
-        const row = await this.prisma.statement.update({
-          where: { id: targetRow.id },
-          data: {
-            statementMonth: parsed.statementMonth,
-            dueDate: new Date(parsed.dueDate),
-            minimumAmountDue: parsed.minimumAmountDue,
-            totalAmountDue: parsed.totalAmountDue,
-            status: 'DUE',
-            statementSyncMonth: syncMonth,
-            updatedBy: 'import-job',
-          },
-          select: { id: true },
-        })
-        this.logger.log(
-          `[SOURCE_UPDATE] card=${source.cardKey} statementId=${row.id} fromMonth=${targetRow.statementMonth} toMonth=${parsed.statementMonth}`,
-        )
-        return {
-          cardKey: source.cardKey,
-          labelName: source.labelName,
-          flow: source.flow,
-          inserted: 0,
-          updated: 1,
-          skipped: 0,
-          failed: 0,
-          summary: 'Updated existing statement',
-          statementId: row.id,
+          summary: 'Dry-run insert candidate',
           statementMonth: parsed.statementMonth,
         }
       }
@@ -423,54 +386,22 @@ export class CcStatementsImportService {
         }
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          const existingNow = await this.prisma.statement.findFirst({
-            where: { tenantId, cardId: card.id, statementMonth: parsed.statementMonth },
-            select: { id: true, status: true },
-          })
-          if (existingNow) {
-            if (/^paid$/i.test((existingNow.status ?? '').trim())) {
-              this.logger.log(
-                `[SOURCE_SKIP] card=${source.cardKey} reason=conflict_row_paid statementMonth=${parsed.statementMonth}`,
-              )
-              return {
-                cardKey: source.cardKey,
-                labelName: source.labelName,
-                flow: source.flow,
-                inserted: 0,
-                updated: 0,
-                skipped: 1,
-                failed: 0,
-                summary: `Statement for ${parsed.statementMonth} already marked PAID (conflict recovery)`,
-                statementMonth: parsed.statementMonth,
-              }
-            }
-            const row = await this.prisma.statement.update({
-              where: { id: existingNow.id },
-              data: {
-                dueDate: new Date(parsed.dueDate),
-                minimumAmountDue: parsed.minimumAmountDue,
-                totalAmountDue: parsed.totalAmountDue,
-                status: 'DUE',
-                statementSyncMonth: syncMonth,
-                updatedBy: 'import-job',
-              },
-              select: { id: true },
-            })
-            this.logger.log(
-              `[SOURCE_UPSERT_RECOVER] card=${source.cardKey} statementId=${row.id} statementMonth=${parsed.statementMonth}`,
-            )
-            return {
-              cardKey: source.cardKey,
-              labelName: source.labelName,
-              flow: source.flow,
-              inserted: 0,
-              updated: 1,
-              skipped: 0,
-              failed: 0,
-              summary: 'Updated existing statement after unique conflict',
-              statementId: row.id,
-              statementMonth: parsed.statementMonth,
-            }
+          // A concurrent run beat us to inserting this month's row between our
+          // existence check and this insert. Existence alone is now the rule,
+          // so just acknowledge it and move on - no need to fetch/update it.
+          this.logger.log(
+            `[SOURCE_SKIP] card=${source.cardKey} reason=conflict_row_exists statementMonth=${parsed.statementMonth}`,
+          )
+          return {
+            cardKey: source.cardKey,
+            labelName: source.labelName,
+            flow: source.flow,
+            inserted: 0,
+            updated: 0,
+            skipped: 1,
+            failed: 0,
+            summary: `Statement for ${parsed.statementMonth} already exists (conflict recovery)`,
+            statementMonth: parsed.statementMonth,
           }
         }
         throw error
