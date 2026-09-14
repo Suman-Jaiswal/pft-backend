@@ -6,6 +6,7 @@ import { google, gmail_v1 } from 'googleapis'
 import { ImportErrorCode, StatementImportResult, StatementImportRunSummary, StatementImportSourceConfig } from '@/modules/import-jobs/types/import-contracts'
 import { resolveImportErrorCode } from '@/modules/import-jobs/services/import-auth-error.util'
 import { StatementSourcesService } from '@/modules/import-jobs/services/statement-sources.service'
+import { isGeminiDailyQuotaExhausted } from '@/modules/import-jobs/services/gemini-quota.util'
 
 type ParsedStatement = {
   dueDate: string
@@ -644,9 +645,11 @@ export class CcStatementsImportService {
         bodyText,
       })
       if (resp.ok) break
-      const canRetry = [429, 500, 502, 503, 504].includes(resp.status)
+      const dailyQuotaExhausted = isGeminiDailyQuotaExhausted(resp.status, bodyText)
+      const canRetry = !dailyQuotaExhausted && [429, 500, 502, 503, 504].includes(resp.status)
       if (!canRetry || attempt === appConfig.statementGeminiMaxAttempts) {
-        throw new Error(`Gemini HTTP ${resp.status}: ${bodyText}`)
+        const suffix = dailyQuotaExhausted ? ' (daily quota exhausted, not retrying)' : ''
+        throw new Error(`Gemini HTTP ${resp.status}: ${bodyText}${suffix}`)
       }
       const sleep = appConfig.statementGeminiBackoffMs * Math.pow(2, attempt - 1)
       await new Promise((resolve) => setTimeout(resolve, sleep))

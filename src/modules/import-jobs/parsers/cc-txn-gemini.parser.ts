@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { appConfig } from '@/config/app.config'
+import { isGeminiDailyQuotaExhausted } from '@/modules/import-jobs/services/gemini-quota.util'
 
 export type GeminiTxnParse = {
   ok: boolean
@@ -178,9 +179,11 @@ export class CcTxnGeminiParser {
         })
         bodyText = await resp.text()
         if (resp.ok) break
-        const canRetry = RETRYABLE_STATUS.has(resp.status)
+        const dailyQuotaExhausted = isGeminiDailyQuotaExhausted(resp.status, bodyText)
+        const canRetry = !dailyQuotaExhausted && RETRYABLE_STATUS.has(resp.status)
         if (!canRetry || attempt === appConfig.statementGeminiMaxAttempts) {
-          return { ok: false, error: `Gemini HTTP ${resp.status}: ${bodyText}` }
+          const suffix = dailyQuotaExhausted ? ' (daily quota exhausted, not retrying)' : ''
+          return { ok: false, error: `Gemini HTTP ${resp.status}: ${bodyText}${suffix}` }
         }
         const sleepMs = appConfig.statementGeminiBackoffMs * Math.pow(2, attempt - 1)
         await new Promise((resolve) => setTimeout(resolve, sleepMs))
