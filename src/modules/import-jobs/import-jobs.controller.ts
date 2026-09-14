@@ -18,6 +18,7 @@ import { RunCcTxnImportDto } from '@/modules/import-jobs/dto/run-cc-txn-import.d
 import { RunCcStatementsImportDto } from '@/modules/import-jobs/dto/run-cc-statements-import.dto'
 import { ListCcTxnFailuresDto } from '@/modules/import-jobs/dto/list-cc-txn-failures.dto'
 import { RetryCcTxnFailuresDto } from '@/modules/import-jobs/dto/retry-cc-txn-failures.dto'
+import { IgnoreCcTxnFailuresDto } from '@/modules/import-jobs/dto/ignore-cc-txn-failures.dto'
 import { RebaseWatermarkDto } from '@/modules/import-jobs/dto/rebase-watermark.dto'
 import { RunDetailedStatementsSyncDto } from '@/modules/import-jobs/dto/run-detailed-statements-sync.dto'
 import { ListDetailedStatementsDto } from '@/modules/import-jobs/dto/list-detailed-statements.dto'
@@ -176,6 +177,27 @@ export class ImportJobsController {
       bankKeys: dto.bankKeys,
       limit: dto.limit,
       dryRun: dto.dryRun,
+    })
+    return ok(result)
+  }
+
+  @Post('cc-txn-failures/ignore')
+  @ApiOperation({ summary: 'Permanently ignore CC txn failures [AUTH: X-Job-Token + X-Tenant-Id]' })
+  @ApiSecurity('job-token')
+  @ApiSecurity('tenant-id')
+  @HttpCode(HttpStatus.OK)
+  async ignoreCcTxnFailures(
+    @Body() dto: IgnoreCcTxnFailuresDto,
+    @Headers('x-job-token') token?: string,
+    @Headers('x-tenant-id') tenantId?: string,
+  ) {
+    this.ensureJobToken(token)
+    const resolvedTenantId = this.requireTenantId(tenantId)
+    const result = await this.importJobsService.ignoreCcTxnFailures({
+      tenantId: resolvedTenantId,
+      ids: dto.ids,
+      bankKeys: dto.bankKeys,
+      limit: dto.limit,
     })
     return ok(result)
   }

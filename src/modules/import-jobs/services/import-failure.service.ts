@@ -102,6 +102,13 @@ export class ImportFailureService {
     })
   }
 
+  async markIgnored(id: string): Promise<void> {
+    await this.prisma.importMessageFailure.update({
+      where: { id },
+      data: { status: 'IGNORED', errorText: null },
+    })
+  }
+
   async markOpenWithError(params: { id: string; failureReason: string; errorText?: string }): Promise<void> {
     await this.prisma.importMessageFailure.update({
       where: { id: params.id },

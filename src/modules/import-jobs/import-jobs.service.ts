@@ -14,6 +14,7 @@ import {
   CcStatementsImportStatus,
   ImportFailureListResult,
   ImportFailureRetryResult,
+  ImportFailureIgnoreResult,
   ImportFailureStatus,
   ImportFailureType,
   ImportRunSummary,
@@ -190,6 +191,16 @@ export class ImportJobsService implements OnModuleInit {
   }): Promise<ImportFailureRetryResult> {
     void options.tenantId
     return this.ccTxnImportService.retryFailures(options)
+  }
+
+  async ignoreCcTxnFailures(options: {
+    tenantId: string
+    ids?: string[]
+    bankKeys?: string[]
+    limit?: number
+  }): Promise<ImportFailureIgnoreResult> {
+    void options.tenantId
+    return this.ccTxnImportService.ignoreFailures(options)
   }
 
   async rebaseCcTxnImportWatermark(options: {

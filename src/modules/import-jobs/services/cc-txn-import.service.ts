@@ -16,6 +16,7 @@ import {
 import {
   BankConfig,
   ImportFailureRetryResult,
+  ImportFailureIgnoreResult,
   BankImportResult,
   BankImportStats,
   BankParserName,
@@ -414,6 +415,28 @@ export class CcTxnImportService {
       notFoundInGmail,
       bankBreakdown: breakdown,
     }
+  }
+
+  /**
+   * Marks failures as permanently IGNORED without touching Gmail/parsers.
+   * Use for known-non-transactional noise (declined txns, OTP mails, unsupported
+   * currencies you've decided to handle manually) that shouldn't keep showing up
+   * as OPEN in the failures list.
+   */
+  async ignoreFailures(options: {
+    ids?: string[]
+    bankKeys?: string[]
+    limit?: number
+  }): Promise<ImportFailureIgnoreResult> {
+    const selected = await this.importFailureService.getFailuresForRetry({
+      ids: options.ids,
+      bankKeys: options.bankKeys,
+      limit: options.limit,
+    })
+    for (const failure of selected) {
+      await this.importFailureService.markIgnored(failure.id)
+    }
+    return { selected: selected.length, ignored: selected.length }
   }
 
   async rebaseWatermark(options: {

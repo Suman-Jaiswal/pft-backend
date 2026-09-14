@@ -167,6 +167,11 @@ export interface ImportFailureRetryResult {
   bankBreakdown: Record<string, { attempted: number; resolved: number; stillOpen: number; notFoundInGmail: number }>
 }
 
+export interface ImportFailureIgnoreResult {
+  selected: number
+  ignored: number
+}
+
 export interface WatermarkRebaseResult {
   dryRun: boolean
   days: number
