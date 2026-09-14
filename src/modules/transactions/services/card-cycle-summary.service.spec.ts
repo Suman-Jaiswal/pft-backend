@@ -96,4 +96,31 @@ describe('CardCycleSummaryService', () => {
     expect(summary.cards[0].cycleStart).toBe('2026-08-01')
     expect(summary.cards[0].cycleEnd).toBe('2026-08-04')
   })
+
+  it('reports unsettledAmount as this cycle current spend-so-far when sync is pending', async () => {
+    // Regression test: unsettledAmount used to be max(0, previousFullCycleTotal
+    // - thisCycleSpendSoFar) - subtracting two disjoint, unrelated months'
+    // totals, producing a number with no real financial meaning. It should
+    // just be "this cycle's spend so far", labeled unsettled because there is
+    // no confirming statement for it yet - not a separate reconciliation figure.
+    prisma.statement.findMany.mockResolvedValue([
+      {
+        id: 'statement-1',
+        cardId: 'card-1',
+        dueDate: new Date(2026, 6, 20),
+        minimumAmountDue: 100,
+        totalAmountDue: 1000,
+        status: 'DUE',
+        statementSyncMonth: '2026-07', // stale: older than the expected 2026-08
+        statementMonth: '2026-07',
+      },
+    ])
+    prisma.transaction.findMany.mockResolvedValue([])
+
+    const summary = await service.getSummary('tenant-1')
+
+    expect(summary.cards[0].statementSyncPending).toBe(true)
+    expect(summary.cards[0].unsettledAmount).toBe(summary.cards[0].cycleSpend)
+    expect(summary.cards[0].unsettledAmount).toBe(2200)
+  })
 })

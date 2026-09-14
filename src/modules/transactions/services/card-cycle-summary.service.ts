@@ -132,13 +132,11 @@ export class CardCycleSummaryService {
           0,
         ),
       )
-      const widenedWindow = statementSyncPending ? this.getPreviousMonthWindow(now, cycleDay) : cycleWindow
-      const widened = statementSyncPending
-        ? await this.aggregateCardSpend(card.id, tenantId, widenedWindow)
-        : settled
-      const unsettledAmount = statementSyncPending
-        ? Math.max(0, widened.sumAmount - settled.sumAmount)
-        : 0
+      // "Unsettled" = this cycle's spend so far, shown under that label only while we
+      // haven't yet seen a confirming statement for it (statementSyncPending). It's the
+      // same figure as cycleSpend/settled - not some separate reconciliation amount -
+      // it's just flagging "this total isn't statement-confirmed yet" to the user.
+      const unsettledAmount = statementSyncPending ? settled.sumAmount : 0
       const statementTotal = latest ? Number(latest.totalAmountDue) : 0
       const minDue = latest ? Number(latest.minimumAmountDue) : 0
       const trendPct =
@@ -321,12 +319,6 @@ export class CardCycleSummaryService {
     }
     const start = new Date(now.getFullYear(), now.getMonth() - 1, cycleDay)
     return { start, endExclusive }
-  }
-
-  private getPreviousMonthWindow(now: Date, cycleDay: number): BillingWindow {
-    const cycleStart = this.getCycleWindow(now, cycleDay).start
-    const start = new Date(cycleStart.getFullYear(), cycleStart.getMonth() - 1, cycleDay)
-    return { start, endExclusive: new Date(cycleStart.getTime()) }
   }
 
   private isStatementSyncPending(cycleDay: number, syncMonth: string | null, now: Date): boolean {
