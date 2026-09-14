@@ -339,8 +339,19 @@ export class CardCycleSummaryService {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
   }
 
+  /**
+   * Formats using LOCAL (Asia/Kolkata, per process.env.TZ) date components, not UTC.
+   * cycleWindow.start/endExclusive are built with the local Date(y,m,d) constructor,
+   * so an IST-midnight instant is e.g. Sept 14 00:00 IST == Sept 13 18:30 UTC.
+   * `.toISOString().slice(0,10)` would render that as "2026-09-13" - a day early -
+   * silently desyncing cycleStart/cycleEnd from the (correct) raw-instant spend
+   * aggregation elsewhere in this service. Local getters avoid that entirely.
+   */
   private formatDate(date: Date): string {
-    return date.toISOString().slice(0, 10)
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
   }
 
   private getTrendDirection(pct: number | null): 'up' | 'down' | 'flat' | 'none' {

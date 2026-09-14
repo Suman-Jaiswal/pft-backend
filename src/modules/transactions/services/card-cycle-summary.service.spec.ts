@@ -1,5 +1,9 @@
 import { CardCycleSummaryService } from './card-cycle-summary.service'
 
+// Pin TZ regardless of CI/host default so cycleStart/cycleEnd (built from
+// LOCAL Date constructors, per Asia/Kolkata prod runtime) are deterministic.
+process.env.TZ = 'Asia/Kolkata'
+
 describe('CardCycleSummaryService', () => {
   const prisma = {
     card: { findMany: jest.fn() },
@@ -76,5 +80,20 @@ describe('CardCycleSummaryService', () => {
     })
     expect(summary.totalEffectiveCycleSpend).toBe(350)
     expect(summary.calendarMonthEffectiveSpend).toBe(350)
+  })
+
+  it('reports cycleStart/cycleEnd as local calendar dates, not UTC-shifted', async () => {
+    // Regression test: formatDate() used to do date.toISOString().slice(0,10),
+    // which converts to UTC first. An IST-local midnight (e.g. Aug 1 00:00 IST)
+    // is Jul 31 18:30 UTC, so the old code reported cycleStart one day early -
+    // desyncing the Transactions "Cycle" filter (which trusts these strings)
+    // from the correct spend total (which uses the raw Date instants directly).
+    prisma.transaction.findMany.mockResolvedValue([])
+
+    const summary = await service.getSummary('tenant-1')
+
+    // fakeNow = Aug 4, 2026; cycleDay = 1 -> current cycle is Aug 1 through today.
+    expect(summary.cards[0].cycleStart).toBe('2026-08-01')
+    expect(summary.cards[0].cycleEnd).toBe('2026-08-04')
   })
 })
