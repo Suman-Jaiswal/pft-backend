@@ -29,4 +29,5 @@ export class UpdatePftSettingsDto {
   @ApiPropertyOptional() @IsString() @IsOptional() dashboardYearRange?: string
   @ApiPropertyOptional() @IsNumber() @IsOptional() dashboardBaselineVersion?: number
   @ApiPropertyOptional({ type: 'array' }) @IsArray() @IsOptional() planDefaultSlates?: unknown[]
+  @ApiPropertyOptional({ type: 'array' }) @IsArray() @IsOptional() statementSourceConfig?: unknown[]
 }

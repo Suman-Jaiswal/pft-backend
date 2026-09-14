@@ -39,6 +39,7 @@ function currentSetting(): PftSettingEntity {
     null,
     null,
     null,
+    [],
   )
 }
 

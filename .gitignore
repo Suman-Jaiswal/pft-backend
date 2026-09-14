@@ -8,3 +8,5 @@ coverage
 .env.local
 .idea
 .vscode
+backups/
+ecosystem.dev.config.cjs

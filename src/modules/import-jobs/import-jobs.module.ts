@@ -7,6 +7,7 @@ import { ImportAlertService } from '@/modules/import-jobs/services/import-alert.
 import { ImportLockService } from '@/modules/import-jobs/services/import-lock.service'
 import { ImportFailureService } from '@/modules/import-jobs/services/import-failure.service'
 import { CcStatementsImportService } from '@/modules/import-jobs/services/cc-statements-import.service'
+import { StatementSourcesService } from '@/modules/import-jobs/services/statement-sources.service'
 import { DetailedStatementsSyncService } from '@/modules/import-jobs/services/detailed-statements-sync.service'
 import { HdfcParser } from '@/modules/import-jobs/parsers/hdfc.parser'
 import { IciciParser } from '@/modules/import-jobs/parsers/icici.parser'
@@ -23,6 +24,7 @@ import { CcTxnGeminiParser } from '@/modules/import-jobs/parsers/cc-txn-gemini.p
     ImportLockService,
     ImportFailureService,
     CcStatementsImportService,
+    StatementSourcesService,
     DetailedStatementsSyncService,
     SbiParser,
     HdfcParser,

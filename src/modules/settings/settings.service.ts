@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { PftSettingEntity } from '@/modules/settings/domain/entities/pft-setting.entity'
+import type { StatementSourceConfigEntry, StatementSyncFlow } from '@/modules/settings/domain/entities/pft-setting.entity'
 import {
   IPftSettingRepository,
   PFT_SETTING_REPOSITORY,
@@ -44,6 +45,7 @@ export type DeductStashResult = {
 
 const MAX_PLAN_DEFAULT_SLATES = 6
 const MAX_PLAN_DEFAULT_SLATE_LABEL_LENGTH = 12
+const STATEMENT_SYNC_FLOWS: StatementSyncFlow[] = ['direct', 'cloudPdf']
 
 function toFiniteNumber(value: unknown): number {
   const n = Number(value)
@@ -82,6 +84,7 @@ export class SettingsService {
       null,
       null,
       null,
+      [],
     )
     return this.repository.upsert(defaults)
   }
@@ -175,6 +178,9 @@ export class SettingsService {
       current.importGmailEmail,
       current.importGmailScope,
       current.importGmailTokenUpdatedAt,
+      dto.statementSourceConfig === undefined
+        ? current.statementSourceConfig
+        : this.normalizeStatementSources(dto.statementSourceConfig),
     )
     const openingChanged =
       dto.prevMfBalance !== undefined ||
@@ -260,6 +266,7 @@ export class SettingsService {
       current.importGmailEmail,
       current.importGmailScope,
       current.importGmailTokenUpdatedAt,
+      current.statementSourceConfig,
     )
     const setting = await this.repository.upsert(updated)
     return { setting, appliedDeduction }
@@ -402,6 +409,34 @@ export class SettingsService {
     if (value == null || value === '') return null
     const numeric = toFiniteNumber(value)
     return numeric > 0 ? numeric : 0
+  }
+
+  private normalizeStatementSources(value: unknown): StatementSourceConfigEntry[] {
+    if (!Array.isArray(value)) throw new BadRequestException('statementSourceConfig must be an array.')
+    const seen = new Set<string>()
+    return value.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new BadRequestException('Invalid statement source config entry.')
+      }
+      const row = item as Record<string, unknown>
+      const cardKey = typeof row.cardKey === 'string' ? row.cardKey.trim().toUpperCase() : ''
+      const labelName = typeof row.labelName === 'string' ? row.labelName.trim() : ''
+      const flow = row.flow as StatementSyncFlow
+      if (!cardKey || !labelName || !STATEMENT_SYNC_FLOWS.includes(flow)) {
+        throw new BadRequestException('Statement source config requires cardKey, labelName, and a valid flow.')
+      }
+      if (seen.has(cardKey)) {
+        throw new BadRequestException(`Duplicate statement source config for card ${cardKey}.`)
+      }
+      seen.add(cardKey)
+      const pdfPassword = typeof row.pdfPassword === 'string' ? row.pdfPassword.trim() : ''
+      return {
+        cardKey,
+        labelName,
+        flow,
+        pdfPassword: flow === 'cloudPdf' && pdfPassword ? pdfPassword : null,
+      }
+    })
   }
 
   private normalizeGoalPayments(

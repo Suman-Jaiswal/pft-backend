@@ -5,6 +5,7 @@ import { appConfig } from '@/config/app.config'
 import { google, gmail_v1 } from 'googleapis'
 import { ImportErrorCode, StatementImportResult, StatementImportRunSummary, StatementImportSourceConfig } from '@/modules/import-jobs/types/import-contracts'
 import { resolveImportErrorCode } from '@/modules/import-jobs/services/import-auth-error.util'
+import { StatementSourcesService } from '@/modules/import-jobs/services/statement-sources.service'
 
 type ParsedStatement = {
   dueDate: string
@@ -26,44 +27,6 @@ type StatementSource = StatementImportSourceConfig & {
 }
 
 const REAUTH_REQUIRED_CODE: ImportErrorCode = 'REAUTH_REQUIRED'
-
-const STATEMENT_SOURCES: StatementSource[] = [
-  {
-    cardKey: 'SBI_XX5965',
-    labelName: appConfig.statementLabelSbi,
-    flow: 'direct',
-    pdfPassword: appConfig.statementPdfPasswordSbi || undefined,
-  },
-  {
-    cardKey: 'HDFC_XX9335',
-    labelName: appConfig.statementLabelHdfc,
-    flow: 'cloudPdf',
-    pdfPassword: appConfig.statementPdfPasswordHdfc || undefined,
-  },
-  {
-    cardKey: 'ICICI_XX5000',
-    labelName: appConfig.statementLabelIcici5000,
-    flow: 'direct',
-    pdfPassword: appConfig.statementPdfPasswordIcici5000 || undefined,
-  },
-  {
-    cardKey: 'ICICI_XX9003',
-    labelName: appConfig.statementLabelIcici9003,
-    flow: 'direct',
-    pdfPassword: appConfig.statementPdfPasswordIcici9003 || undefined,
-  },
-  {
-    cardKey: 'CSB_XX4345',
-    labelName: appConfig.statementLabelCsb,
-    flow: 'cloudPdf',
-    pdfPassword: appConfig.statementPdfPasswordCsb || undefined,
-  },
-  {
-    cardKey: 'SLICE_XX6447',
-    labelName: appConfig.statementLabelSlice,
-    flow: 'direct',
-  },
-]
 
 export function buildStatementPdfPasswordCandidates(
   labelName: string,
@@ -120,8 +83,13 @@ export function normalizeStatementAmounts(minimumAmountDue: number, totalAmountD
 @Injectable()
 export class CcStatementsImportService {
   private readonly logger = new Logger(CcStatementsImportService.name)
+  /** Set at the start of each runImport() call; used for verbose-log label→card lookups. */
+  private activeSources: StatementSource[] = []
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly statementSources: StatementSourcesService,
+  ) {}
 
   async runImport(options: {
     tenantId: string
@@ -131,12 +99,29 @@ export class CcStatementsImportService {
     const startedAt = new Date()
     const dryRun = Boolean(options.dryRun)
     const runMonth = this.formatMonth(new Date())
-    const selected = this.filterSources(options.cardKeys)
+    const selected = await this.statementSources.loadForTenant(options.tenantId, options.cardKeys)
+    this.activeSources = selected
     this.logger.log(
       `[SYNC_START] tenant=${options.tenantId} dryRun=${dryRun} runMonth=${runMonth} selectedCards=${selected
         .map((s) => s.cardKey)
         .join(',')}`,
     )
+
+    if (selected.length === 0) {
+      const completedAt = new Date()
+      this.logger.warn(`[SYNC_SKIP] tenant=${options.tenantId} reason=no_statement_sources_configured`)
+      return {
+        job: 'cc_statements_import',
+        status: 'OK',
+        startedAt: startedAt.toISOString(),
+        completedAt: completedAt.toISOString(),
+        elapsedMs: completedAt.getTime() - startedAt.getTime(),
+        runMonth,
+        failureCount: 0,
+        aggregate: { inserted: 0, updated: 0, skipped: 0, failed: 0 },
+        cards: [],
+      }
+    }
 
     const perCard = await Promise.all(selected.map((src) => this.importForSource(src, options.tenantId, dryRun)))
 
@@ -171,12 +156,6 @@ export class CcStatementsImportService {
       aggregate,
       cards: perCard,
     }
-  }
-
-  private filterSources(cardKeys?: string[]): StatementSource[] {
-    if (!cardKeys?.length) return STATEMENT_SOURCES
-    const wanted = new Set(cardKeys.map((k) => k.trim().toUpperCase()).filter(Boolean))
-    return STATEMENT_SOURCES.filter((src) => wanted.has(src.cardKey.toUpperCase()))
   }
 
   private async importForSource(
@@ -793,7 +772,7 @@ export class CcStatementsImportService {
   }
 
   private logVerboseFromLabel(labelName: string, step: string, payload: unknown): void {
-    const mapping = STATEMENT_SOURCES.find((s) => s.labelName === labelName)
+    const mapping = this.activeSources.find((s) => s.labelName === labelName)
     if (!mapping) return
     this.logVerbose(mapping.cardKey, step, payload)
   }

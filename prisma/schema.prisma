@@ -368,6 +368,7 @@ model PftSetting {
   dashboardYearRange    String?
   dashboardBaselineVersion Int   @default(1)
   planDefaultSlates     Json?
+  statementSourceConfig Json?
   importGmailRefreshToken String?
   importGmailEmail        String?
   importGmailScope        String?

@@ -5,6 +5,7 @@ import { google, gmail_v1 } from 'googleapis'
 import { appConfig } from '@/config/app.config'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { buildStatementPdfPasswordCandidates } from '@/modules/import-jobs/services/cc-statements-import.service'
+import { StatementSourcesService } from '@/modules/import-jobs/services/statement-sources.service'
 
 type StatementSource = {
   cardKey: string
@@ -32,20 +33,14 @@ const JOB_KEY = 'detailed_statements_backfill'
 const SOURCE_NAME = 'gmail_statement_pdf'
 const WATERMARK_OVERLAP_MS = 2 * 24 * 60 * 60 * 1000
 
-const STATEMENT_SOURCES: StatementSource[] = [
-  { cardKey: 'SBI_XX5965', labelName: appConfig.statementLabelSbi, pdfPassword: appConfig.statementPdfPasswordSbi || undefined },
-  { cardKey: 'HDFC_XX9335', labelName: appConfig.statementLabelHdfc, pdfPassword: appConfig.statementPdfPasswordHdfc || undefined },
-  { cardKey: 'ICICI_XX5000', labelName: appConfig.statementLabelIcici5000, pdfPassword: appConfig.statementPdfPasswordIcici5000 || undefined },
-  { cardKey: 'ICICI_XX9003', labelName: appConfig.statementLabelIcici9003, pdfPassword: appConfig.statementPdfPasswordIcici9003 || undefined },
-  { cardKey: 'CSB_XX4345', labelName: appConfig.statementLabelCsb, pdfPassword: appConfig.statementPdfPasswordCsb || undefined },
-  { cardKey: 'SLICE_XX6447', labelName: appConfig.statementLabelSlice, pdfPassword: undefined },
-]
-
 @Injectable()
 export class DetailedStatementsSyncService {
   private readonly logger = new Logger(DetailedStatementsSyncService.name)
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly statementSources: StatementSourcesService,
+  ) {}
 
   async runSync(options: {
     tenantId: string
@@ -54,7 +49,7 @@ export class DetailedStatementsSyncService {
     bypassCardLookup?: boolean
   }) {
     const startedAt = new Date()
-    const selected = this.filterSources(options.cardKeys)
+    const selected = await this.statementSources.loadForTenant(options.tenantId, options.cardKeys)
     const clientId = appConfig.googleClientId?.trim()
     const clientSecret = appConfig.googleClientSecret?.trim()
     if (!clientId || !clientSecret) throw new Error('reauth_required: google_client_credentials_missing')
@@ -186,12 +181,6 @@ export class DetailedStatementsSyncService {
         updatedAt: row.updatedAt.toISOString(),
       })),
     }
-  }
-
-  private filterSources(cardKeys?: string[]): StatementSource[] {
-    if (!cardKeys?.length) return STATEMENT_SOURCES
-    const wanted = new Set(cardKeys.map((k) => k.trim().toUpperCase()).filter(Boolean))
-    return STATEMENT_SOURCES.filter((src) => wanted.has(src.cardKey.toUpperCase()))
   }
 
   private async syncSource(

@@ -1,5 +1,14 @@
 import { BaseEntity } from '@/shared/domain/base.entity'
 
+export type StatementSyncFlow = 'direct' | 'cloudPdf'
+
+export interface StatementSourceConfigEntry {
+  cardKey: string
+  labelName: string
+  flow: StatementSyncFlow
+  pdfPassword?: string | null
+}
+
 export class PftSettingEntity extends BaseEntity {
   constructor(
     id: string,
@@ -34,6 +43,7 @@ export class PftSettingEntity extends BaseEntity {
     public readonly importGmailEmail: string | null,
     public readonly importGmailScope: string | null,
     public readonly importGmailTokenUpdatedAt: Date | null,
+    public readonly statementSourceConfig: StatementSourceConfigEntry[],
   ) {
     super(id, tenantId, createdAt, updatedAt, createdBy, updatedBy)
     this.prevInvestmentBalance = prevMfBalance + prevStocksBalance

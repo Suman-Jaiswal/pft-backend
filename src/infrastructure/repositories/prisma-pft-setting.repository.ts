@@ -1,8 +1,16 @@
 import { Injectable } from '@nestjs/common'
 import { PftSetting, Prisma } from '@prisma/client'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
-import { PftSettingEntity } from '@/modules/settings/domain/entities/pft-setting.entity'
+import { PftSettingEntity, StatementSourceConfigEntry } from '@/modules/settings/domain/entities/pft-setting.entity'
 import { IPftSettingRepository } from '@/modules/settings/domain/repositories/pft-setting.repository'
+
+function statementSourceConfig(value: unknown): StatementSourceConfigEntry[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (item): item is StatementSourceConfigEntry =>
+      Boolean(item) && typeof item === 'object' && typeof (item as StatementSourceConfigEntry).cardKey === 'string',
+  )
+}
 
 function fdPacket(value: unknown): { amount: number; quantity: number } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { amount: 0, quantity: 0 }
@@ -50,6 +58,7 @@ function toEntity(row: PftSetting): PftSettingEntity {
     row.importGmailEmail,
     row.importGmailScope,
     row.importGmailTokenUpdatedAt,
+    statementSourceConfig(row.statementSourceConfig),
   )
 }
 
@@ -89,6 +98,7 @@ async function upsertWithClient(
       importGmailEmail: setting.importGmailEmail ?? undefined,
       importGmailScope: setting.importGmailScope ?? undefined,
       importGmailTokenUpdatedAt: setting.importGmailTokenUpdatedAt ?? undefined,
+      statementSourceConfig: setting.statementSourceConfig as unknown as object,
       updatedBy: setting.updatedBy,
     },
     create: {
@@ -121,6 +131,7 @@ async function upsertWithClient(
       importGmailEmail: setting.importGmailEmail ?? undefined,
       importGmailScope: setting.importGmailScope ?? undefined,
       importGmailTokenUpdatedAt: setting.importGmailTokenUpdatedAt ?? undefined,
+      statementSourceConfig: setting.statementSourceConfig as unknown as object,
       createdBy: setting.createdBy,
       updatedBy: setting.updatedBy,
     },
