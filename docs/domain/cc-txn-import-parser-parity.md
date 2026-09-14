@@ -1,6 +1,8 @@
-# CC Txn Import Parser Parity Checklist
+# CC Txn Import Parser Parity Checklist (legacy)
 
-Reference source: `/Users/s0j0b3x/Personal/pft-appscripts/sync_cc_transactions.gs`
+**Retired.** Apps Script is not used. Live import is Nest `CcTxnImportService` in this repo. Do not use this file or `sync_cc_transactions.gs` as design source. See `cc-txn-import-runtime.md` and `cc-txn-import-wallet-routing-sdd.md`.
+
+Historical reference (old Apps Script): `/Users/s0j0b3x/Personal/pft-appscripts/sync_cc_transactions.gs`
 
 ## SBI (`parseSbiTxn_`)
 

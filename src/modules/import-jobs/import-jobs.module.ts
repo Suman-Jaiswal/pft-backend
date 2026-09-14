@@ -11,6 +11,7 @@ import { DetailedStatementsSyncService } from '@/modules/import-jobs/services/de
 import { HdfcParser } from '@/modules/import-jobs/parsers/hdfc.parser'
 import { IciciParser } from '@/modules/import-jobs/parsers/icici.parser'
 import { SbiParser } from '@/modules/import-jobs/parsers/sbi.parser'
+import { CcTxnGeminiParser } from '@/modules/import-jobs/parsers/cc-txn-gemini.parser'
 
 @Module({
   controllers: [ImportJobsController],
@@ -26,6 +27,7 @@ import { SbiParser } from '@/modules/import-jobs/parsers/sbi.parser'
     SbiParser,
     HdfcParser,
     IciciParser,
+    CcTxnGeminiParser,
   ],
 })
 export class ImportJobsModule {}

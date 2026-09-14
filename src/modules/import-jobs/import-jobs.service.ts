@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { CcTxnImportService } from '@/modules/import-jobs/services/cc-txn-import.service'
 import { CcStatementsImportService } from '@/modules/import-jobs/services/cc-statements-import.service'
@@ -6,6 +6,8 @@ import { DetailedStatementsSyncService } from '@/modules/import-jobs/services/de
 import { ImportLockService } from '@/modules/import-jobs/services/import-lock.service'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import {
+  CcTxnImportRunSnapshot,
+  CcTxnImportStartResult,
   CcTxnImportStatus,
   CcStatementsImportRunSnapshot,
   CcStatementsImportStartResult,
@@ -23,13 +25,17 @@ const JOB_KEY = 'cc_txn_import'
 const STATEMENTS_JOB_KEY = 'cc_statements_import'
 const DETAILED_STATEMENTS_JOB_KEY = 'detailed_statements_backfill'
 const LOCK_TTL_MS = 20 * 60 * 1000
+/** Drain + 60s between Gemini batches can exceed 20 minutes. */
+const CC_TXN_LOCK_TTL_MS = 6 * 60 * 60 * 1000
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue
 }
 
 @Injectable()
-export class ImportJobsService {
+export class ImportJobsService implements OnModuleInit {
+  private readonly logger = new Logger(ImportJobsService.name)
+
   constructor(
     private readonly lockService: ImportLockService,
     private readonly ccTxnImportService: CcTxnImportService,
@@ -38,44 +44,128 @@ export class ImportJobsService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async runCcTxnImport(options: {
+  async onModuleInit(): Promise<void> {
+    await this.lockService.release(JOB_KEY)
+    this.logger.log(`[TXN_LOCK] cleared stale ${JOB_KEY} lock on startup`)
+  }
+
+  async startCcTxnImport(options: {
     tenantId: string
     dryRun?: boolean
     bankKeys?: string[]
     owner: string
-  }): Promise<ImportRunSummary> {
-    const acquired = await this.lockService.acquire(JOB_KEY, options.owner, LOCK_TTL_MS)
+  }): Promise<CcTxnImportStartResult> {
+    const startedAt = new Date()
+    const created = await this.prisma.importJobRun.create({
+      data: {
+        jobKey: JOB_KEY,
+        tenantId: options.tenantId,
+        status: 'RUNNING',
+        payload: toJsonValue({ jobRunId: '', status: 'RUNNING', startedAt: startedAt.toISOString() }),
+        startedAt,
+        completedAt: startedAt,
+      },
+      select: { id: true },
+    })
+    const runId = created.id
+    const result: CcTxnImportStartResult = {
+      jobRunId: runId,
+      status: 'RUNNING',
+      startedAt: startedAt.toISOString(),
+    }
+    await this.prisma.importJobRun.update({
+      where: { id: runId },
+      data: { payload: toJsonValue(result) },
+    })
+
+    void this.executeCcTxnImportRun({
+      runId,
+      owner: options.owner,
+      tenantId: options.tenantId,
+      dryRun: options.dryRun,
+      bankKeys: options.bankKeys,
+    })
+
+    return result
+  }
+
+  async getCcTxnImportRun(tenantId: string, runId: string): Promise<CcTxnImportRunSnapshot | null> {
+    const row = await this.prisma.importJobRun.findFirst({
+      where: { id: runId, jobKey: JOB_KEY, tenantId },
+      select: { id: true, status: true, createdAt: true, updatedAt: true, payload: true },
+    })
+    if (!row) return null
+    return {
+      jobRunId: row.id,
+      status: row.status as CcTxnImportRunSnapshot['status'],
+      startedAt: row.createdAt.toISOString(),
+      completedAt: row.status === 'RUNNING' ? null : row.updatedAt.toISOString(),
+      payload: row.payload as unknown as ImportRunSummary | CcTxnImportStartResult,
+    }
+  }
+
+  private async executeCcTxnImportRun(options: {
+    runId: string
+    tenantId: string
+    owner: string
+    dryRun?: boolean
+    bankKeys?: string[]
+  }): Promise<void> {
+    const acquired = await this.lockService.acquire(JOB_KEY, options.owner, CC_TXN_LOCK_TTL_MS)
     if (!acquired) {
-      const now = new Date().toISOString()
-      return {
-        job: 'cc_txn_import',
-        status: 'SKIPPED_LOCKED',
-        startedAt: now,
-        completedAt: now,
-        elapsedMs: 0,
-        failureCount: 0,
-        aggregate: {
-          messages: 0,
-          messagesFromSearch: 0,
-          inserted: 0,
-          duplicates: 0,
-          skipped: 0,
-          parseMiss: 0,
-          parseErrors: 0,
+      this.logger.warn(`[TXN_LOCK] run=${options.runId} skipped, ${JOB_KEY} already locked`)
+      await this.prisma.importJobRun.update({
+        where: { id: options.runId },
+        data: {
+          status: 'SKIPPED_LOCKED',
+          payload: toJsonValue(this.emptyTxnSummary('SKIPPED_LOCKED')),
         },
-        spendCapAlertSent: false,
-        banks: [],
-      }
+      })
+      return
     }
 
     try {
-      return await this.ccTxnImportService.runImport({
+      await this.ccTxnImportService.runImport({
         tenantId: options.tenantId,
         dryRun: options.dryRun,
         bankKeys: options.bankKeys,
+        runId: options.runId,
+      })
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error)
+      this.logger.error(`[TXN_DONE] run=${options.runId} status=FAILURE error=${errorText}`)
+      await this.prisma.importJobRun.update({
+        where: { id: options.runId },
+        data: {
+          status: 'FAILURE',
+          payload: toJsonValue({ ...this.emptyTxnSummary('FAILURE'), failureCount: 1, error: errorText }),
+        },
       })
     } finally {
-      await this.lockService.release(JOB_KEY, options.owner)
+      await this.lockService.release(JOB_KEY)
+    }
+  }
+
+  private emptyTxnSummary(status: ImportRunSummary['status']): ImportRunSummary {
+    const now = new Date().toISOString()
+    return {
+      job: 'cc_txn_import',
+      status,
+      startedAt: now,
+      completedAt: now,
+      elapsedMs: 0,
+      failureCount: 0,
+      aggregate: {
+        messages: 0,
+        messagesFromSearch: 0,
+        inserted: 0,
+        duplicates: 0,
+        skipped: 0,
+        parseMiss: 0,
+        parseErrors: 0,
+      },
+      spendCapAlertSent: false,
+      banks: [],
     }
   }
 
@@ -122,8 +212,9 @@ export class ImportJobsService {
           importGmailEmail: true,
         },
       }),
+      // Ignore in-flight runs so the reauth banner keeps showing the last settled outcome.
       this.prisma.importJobRun.findFirst({
-        where: { jobKey: JOB_KEY, tenantId },
+        where: { jobKey: JOB_KEY, tenantId, status: { not: 'RUNNING' } },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, status: true, payload: true },
       }),
@@ -148,7 +239,7 @@ export class ImportJobsService {
       credentialUpdatedAt: setting?.importGmailTokenUpdatedAt?.toISOString() ?? null,
       credentialEmail: setting?.importGmailEmail ?? null,
       lastRunAt: run?.createdAt?.toISOString() ?? null,
-      lastRunStatus: (run?.status as ImportRunSummary['status'] | undefined) ?? null,
+      lastRunStatus: (run?.status as CcTxnImportStatus['lastRunStatus']) ?? null,
       lastRunErrorCode: payload?.errorCode ?? null,
     }
   }

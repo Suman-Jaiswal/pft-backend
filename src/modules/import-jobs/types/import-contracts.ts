@@ -1,6 +1,7 @@
 export type ImportJobStatus = 'OK' | 'PARTIAL' | 'FAILURE' | 'SKIPPED_LOCKED'
 export type ImportErrorCode = 'REAUTH_REQUIRED'
 export type StatementImportRunState = ImportJobStatus | 'RUNNING'
+export type TxnImportRunState = ImportJobStatus | 'RUNNING'
 
 export type ImportWindowSource = 'watermark' | 'firestore_max_txn' | 'none'
 export type ImportFailureStatus = 'OPEN' | 'RETRYING' | 'RESOLVED' | 'IGNORED'
@@ -14,7 +15,7 @@ export interface BankConfig {
   cardLast4?: string
   knownCards?: string[]
   labelName: string
-  parserName: BankParserName
+  parserName?: BankParserName
   senderAllowlist?: string[]
   fallbackStartDate: string
 }
@@ -100,8 +101,23 @@ export interface CcTxnImportStatus {
   credentialUpdatedAt: string | null
   credentialEmail: string | null
   lastRunAt: string | null
+  /** In-flight runs are excluded, so this is always a settled status. */
   lastRunStatus: ImportJobStatus | null
   lastRunErrorCode: ImportErrorCode | null
+}
+
+export interface CcTxnImportStartResult {
+  jobRunId: string
+  status: 'RUNNING'
+  startedAt: string
+}
+
+export interface CcTxnImportRunSnapshot {
+  jobRunId: string
+  status: TxnImportRunState
+  startedAt: string
+  completedAt: string | null
+  payload: ImportRunSummary | CcTxnImportStartResult
 }
 
 export interface PolledMessage {

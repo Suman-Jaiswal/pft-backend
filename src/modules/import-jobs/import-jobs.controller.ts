@@ -96,7 +96,7 @@ export class ImportJobsController {
   }
 
   @Post('cc-txn-import')
-  @ApiOperation({ summary: 'Run CC txn import [AUTH: X-Job-Token + X-Tenant-Id]' })
+  @ApiOperation({ summary: 'Start CC txn import (async) [AUTH: X-Job-Token + X-Tenant-Id]' })
   @ApiSecurity('job-token')
   @ApiSecurity('tenant-id')
   @HttpCode(HttpStatus.OK)
@@ -109,12 +109,28 @@ export class ImportJobsController {
     const resolvedTenantId = this.requireTenantId(tenantId)
 
     const owner = `api:${Date.now()}`
-    const result = await this.importJobsService.runCcTxnImport({
+    const result = await this.importJobsService.startCcTxnImport({
       tenantId: resolvedTenantId,
       dryRun: dto.dryRun,
       bankKeys: dto.bankKeys,
       owner,
     })
+    return ok(result)
+  }
+
+  @Get('cc-txn-import/runs/:id')
+  @ApiOperation({ summary: 'Get CC txn import run [AUTH: X-Job-Token + X-Tenant-Id]' })
+  @ApiSecurity('job-token')
+  @ApiSecurity('tenant-id')
+  @HttpCode(HttpStatus.OK)
+  async getCcTxnImportRun(
+    @Param('id') runId: string,
+    @Headers('x-job-token') token?: string,
+    @Headers('x-tenant-id') tenantId?: string,
+  ) {
+    this.ensureJobToken(token)
+    const result = await this.importJobsService.getCcTxnImportRun(this.requireTenantId(tenantId), runId)
+    if (!result) throw new NotFoundException('Import run not found')
     return ok(result)
   }
 

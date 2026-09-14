@@ -26,9 +26,9 @@ export class ImportLockService {
     }
   }
 
-  async release(jobKey: string, owner: string): Promise<void> {
+  async release(jobKey: string, owner?: string): Promise<void> {
     await this.prisma.importJobLock.deleteMany({
-      where: { jobKey, owner },
+      where: owner ? { jobKey, owner } : { jobKey },
     })
   }
 }

@@ -13,6 +13,8 @@ const config: Config = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
+  modulePathIgnorePatterns: ['<rootDir>/backups/'],
+  watchPathIgnorePatterns: ['<rootDir>/backups/'],
 }
 
 export default config

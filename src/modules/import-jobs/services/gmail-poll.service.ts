@@ -4,6 +4,13 @@ import { appConfig } from '@/config/app.config'
 import { PolledMessage } from '@/modules/import-jobs/types/import-contracts'
 import { PrismaService } from '@/infrastructure/prisma/prisma.service'
 import { isGoogleAuthError } from '@/modules/import-jobs/services/import-auth-error.util'
+import {
+  listDirectChildLabels,
+  prepareGeminiBody as clipGeminiBody,
+  stripHtml,
+} from '@/modules/import-jobs/services/gmail-label.util'
+
+export { listDirectChildLabels, prepareGeminiBody } from '@/modules/import-jobs/services/gmail-label.util'
 
 type GmailCredential = {
   refreshToken: string
@@ -58,6 +65,42 @@ export class GmailPollService {
     if (!message) return null
 
     return this.mapToPolledMessage(message)
+  }
+
+  async listChildLabels(
+    tenantId: string,
+    parentName: string,
+  ): Promise<Array<{ id: string; name: string; leaf: string }>> {
+    const clientId = appConfig.googleClientId
+    const clientSecret = appConfig.googleClientSecret
+    const userId = appConfig.importGmailUser || 'me'
+    const credential = await this.loadImportCredential(tenantId)
+
+    if (!clientId || !clientSecret) {
+      this.logger.warn('Gmail import credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.')
+      throw new Error('reauth_required: google_client_credentials_missing')
+    }
+
+    const gmail = this.getGmailClient(clientId, clientSecret, credential.refreshToken)
+    const response = await this.withRetry(async () => gmail.users.labels.list({ userId }))
+    const labels = (response.data.labels ?? []).filter(
+      (label): label is gmail_v1.Schema$Label & { id: string; name: string } =>
+        Boolean(label.id && label.name),
+    )
+    const children = listDirectChildLabels(
+      labels.map((label) => label.name),
+      parentName,
+    )
+    const idByName = new Map(labels.map((label) => [label.name, label.id]))
+
+    return children.flatMap(({ name, leaf }) => {
+      const id = idByName.get(name)
+      return id ? [{ id, name, leaf }] : []
+    })
+  }
+
+  prepareGeminiBody(raw: string, maxLen: number): string {
+    return clipGeminiBody(raw, maxLen)
   }
 
   private async listMessageIdsWithRetry(
@@ -148,7 +191,7 @@ export class GmailPollService {
     }
     for (const part of parts) {
       if (part?.mimeType === 'text/html' && part?.body?.data) {
-        return this.stripHtml(this.decodeBase64Url(part.body.data))
+        return stripHtml(this.decodeBase64Url(part.body.data))
       }
     }
     for (const part of parts) {
@@ -163,20 +206,33 @@ export class GmailPollService {
     return Buffer.from(normalized, 'base64').toString('utf8')
   }
 
-  private stripHtml(html: string): string {
-    return html
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+  /**
+   * googleapis has no default request timeout, and a stalled token refresh or
+   * socket will otherwise hang the whole import run indefinitely.
+   */
+  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    if (ms <= 0) return promise
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`gmail_timeout: no response in ${ms}ms`)), ms)
+      promise.then(
+        (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      )
+    })
   }
 
   private async withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+    const timeoutMs = appConfig.importGmailTimeoutMs
     let lastError: unknown
     for (let i = 0; i < attempts; i++) {
       try {
-        return await fn()
+        return await this.withTimeout(fn(), timeoutMs)
       } catch (error) {
         lastError = error
         if (isGoogleAuthError(error)) {
