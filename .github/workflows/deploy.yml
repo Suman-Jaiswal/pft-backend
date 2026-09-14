@@ -72,102 +72,102 @@ jobs:
           cache-to: type=gha,mode=max
 
   # --- JOB 2: EC2 ONLY PULLS AND RUNS (ZERO RESOURCE STRAIN) ---
-  deploy-to-ec2:
-    name: Deploy to EC2
-    needs: build-and-migrate  
-    runs-on: [self-hosted, linux, arm64]
-    steps:
-      - name: Clean and Run Docker Container
-        env:
-          REGISTRY: ${{ env.REGISTRY }}
-          RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
-          RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
-          RPI_ENV_FILE_CONTENT: ${{ secrets.RPI_ENV_FILE_CONTENT }}
-          RPI_APP_DIR: ${{ secrets.RPI_APP_DIR }}
-        run: |
-          set -euo pipefail
+  # deploy-to-ec2:
+  #   name: Deploy to EC2
+  #   needs: build-and-migrate  
+  #   runs-on: [self-hosted, linux, arm64]
+  #   steps:
+  #     - name: Clean and Run Docker Container
+  #       env:
+  #         REGISTRY: ${{ env.REGISTRY }}
+  #         RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
+  #         RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
+  #         RPI_ENV_FILE_CONTENT: ${{ secrets.RPI_ENV_FILE_CONTENT }}
+  #         RPI_APP_DIR: ${{ secrets.RPI_APP_DIR }}
+  #       run: |
+  #         set -euo pipefail
           
-          # 1. Setup variables and explicitly force lowercase values
-          CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
-          PORT="${RPI_APP_PORT:-4000}"
-          APP_DIR="${RPI_APP_DIR:-/opt/pft-backend}"
-          SHORT_SHA="${GITHUB_SHA::7}"
+  #         # 1. Setup variables and explicitly force lowercase values
+  #         CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
+  #         PORT="${RPI_APP_PORT:-4000}"
+  #         APP_DIR="${RPI_APP_DIR:-/opt/pft-backend}"
+  #         SHORT_SHA="${GITHUB_SHA::7}"
           
-          RAW_REPO_NAME="${{ github.repository }}"
-          LOWERCASE_REPO_NAME=$(echo "$RAW_REPO_NAME" | tr '[:upper:]' '[:lower:]')
-          FULL_IMAGE_PATH="${REGISTRY}/${LOWERCASE_REPO_NAME}:sha-${SHORT_SHA}"
+  #         RAW_REPO_NAME="${{ github.repository }}"
+  #         LOWERCASE_REPO_NAME=$(echo "$RAW_REPO_NAME" | tr '[:upper:]' '[:lower:]')
+  #         FULL_IMAGE_PATH="${REGISTRY}/${LOWERCASE_REPO_NAME}:sha-${SHORT_SHA}"
           
-          # 2. Log into the container registry from EC2
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${REGISTRY} -u ${{ github.actor }} --password-stdin
+  #         # 2. Log into the container registry from EC2
+  #         echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${REGISTRY} -u ${{ github.actor }} --password-stdin
           
-          # 3. Pull the pre-compiled native ARM64 image directly
-          echo "Pulling image from production path: ${FULL_IMAGE_PATH}"
-          docker pull "${FULL_IMAGE_PATH}"
+  #         # 3. Pull the pre-compiled native ARM64 image directly
+  #         echo "Pulling image from production path: ${FULL_IMAGE_PATH}"
+  #         docker pull "${FULL_IMAGE_PATH}"
           
-          # 4. Handle persistent application config directories
-          sudo mkdir -p "${APP_DIR}/shared"
-          sudo chown -R "$USER:$USER" "${APP_DIR}"
+  #         # 4. Handle persistent application config directories
+  #         sudo mkdir -p "${APP_DIR}/shared"
+  #         sudo chown -R "$USER:$USER" "${APP_DIR}"
           
-          if [[ -n "${RPI_ENV_FILE_CONTENT:-}" ]]; then
-            printf '%s\n' "${RPI_ENV_FILE_CONTENT}" > "${APP_DIR}/shared/.env"
-            chmod 600 "${APP_DIR}/shared/.env"
-          fi
+  #         if [[ -n "${RPI_ENV_FILE_CONTENT:-}" ]]; then
+  #           printf '%s\n' "${RPI_ENV_FILE_CONTENT}" > "${APP_DIR}/shared/.env"
+  #           chmod 600 "${APP_DIR}/shared/.env"
+  #         fi
           
-          # 5. Stop and clean existing containers gracefully
-          if docker ps -a --format '{{.Names}}' | grep -Fxq "$CONTAINER"; then
-            echo "Stopping old container..."
-            docker rm -f "$CONTAINER" || true
-          fi
+  #         # 5. Stop and clean existing containers gracefully
+  #         if docker ps -a --format '{{.Names}}' | grep -Fxq "$CONTAINER"; then
+  #           echo "Stopping old container..."
+  #           docker rm -f "$CONTAINER" || true
+  #         fi
           
-          BINDING_CONTAINER_IDS=$(docker ps --format '{{.ID}} {{.Ports}}' | awk -v port=":${PORT}" '$0 ~ port {print $1}') || true
-          if [ -n "${BINDING_CONTAINER_IDS:-}" ]; then
-            echo "Clearing out conflicting container IDs: ${BINDING_CONTAINER_IDS}"
-            echo "$BINDING_CONTAINER_IDS" | xargs -r docker rm -f || true
-          fi
+  #         BINDING_CONTAINER_IDS=$(docker ps --format '{{.ID}} {{.Ports}}' | awk -v port=":${PORT}" '$0 ~ port {print $1}') || true
+  #         if [ -n "${BINDING_CONTAINER_IDS:-}" ]; then
+  #           echo "Clearing out conflicting container IDs: ${BINDING_CONTAINER_IDS}"
+  #           echo "$BINDING_CONTAINER_IDS" | xargs -r docker rm -f || true
+  #         fi
           
-          # 6. Run the production container instantly
-          echo "Spinning up application container..."
-          docker run -d \
-            --name "${CONTAINER}" \
-            --restart unless-stopped \
-            --env-file "${APP_DIR}/shared/.env" \
-            -e "PORT=${PORT}" \
-            -e "RELEASE_ID=${SHORT_SHA}" \
-            -p "${PORT}:4000" \
-            "${FULL_IMAGE_PATH}"
+  #         # 6. Run the production container instantly
+  #         echo "Spinning up application container..."
+  #         docker run -d \
+  #           --name "${CONTAINER}" \
+  #           --restart unless-stopped \
+  #           --env-file "${APP_DIR}/shared/.env" \
+  #           -e "PORT=${PORT}" \
+  #           -e "RELEASE_ID=${SHORT_SHA}" \
+  #           -p "${PORT}:4000" \
+  #           "${FULL_IMAGE_PATH}"
             
-          # 7. Post-deployment system sanitation
-          docker image prune -af || true
-          echo "Deployment successful!"
+  #         # 7. Post-deployment system sanitation
+  #         docker image prune -af || true
+  #         echo "Deployment successful!"
 
-      - name: Post-Deploy Health Check
-        env:
-          RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
-          RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
-        run: |
-          set -euo pipefail
-          PORT="${RPI_APP_PORT:-4000}"
-          CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
-          HEALTH_URL="http://127.0.0.1:${PORT}/api/v1/health"
+  #     - name: Post-Deploy Health Check
+  #       env:
+  #         RPI_CONTAINER_NAME: ${{ secrets.RPI_CONTAINER_NAME }}
+  #         RPI_APP_PORT: ${{ secrets.RPI_APP_PORT }}
+  #       run: |
+  #         set -euo pipefail
+  #         PORT="${RPI_APP_PORT:-4000}"
+  #         CONTAINER="${RPI_CONTAINER_NAME:-pft-backend-app}"
+  #         HEALTH_URL="http://127.0.0.1:${PORT}/api/v1/health"
           
-          echo "Waiting for health endpoint: ${HEALTH_URL}"
-          status=1
+  #         echo "Waiting for health endpoint: ${HEALTH_URL}"
+  #         status=1
           
-          for i in $(seq 1 6); do
-            if curl -sf "${HEALTH_URL}" > /dev/null; then
-              echo "Health check passed! The application is running smoothly."
-              status=0
-              break
-            else
-              echo "Attempt ${i}: Endpoint not ready yet. Retrying in 5s..."
-              sleep 5
-            fi
-          done
+  #         for i in $(seq 1 6); do
+  #           if curl -sf "${HEALTH_URL}" > /dev/null; then
+  #             echo "Health check passed! The application is running smoothly."
+  #             status=0
+  #             break
+  #           else
+  #             echo "Attempt ${i}: Endpoint not ready yet. Retrying in 5s..."
+  #             sleep 5
+  #           fi
+  #         done
           
-          if [ "${status}" -ne 0 ]; then
-            echo "ERROR: Health check timed out! Outputting container crash log streams:"
-            echo "----------------------------------------"
-            docker logs --tail 100 "${CONTAINER}" || true
-            echo "----------------------------------------"
-            exit 1
-          fi
+  #         if [ "${status}" -ne 0 ]; then
+  #           echo "ERROR: Health check timed out! Outputting container crash log streams:"
+  #           echo "----------------------------------------"
+  #           docker logs --tail 100 "${CONTAINER}" || true
+  #           echo "----------------------------------------"
+  #           exit 1
+  #         fi
