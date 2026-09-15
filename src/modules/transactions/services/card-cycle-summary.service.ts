@@ -39,6 +39,12 @@ type CardCycleSummaryRow = {
   missingLatestStatement: boolean
   canManualUpdate: boolean
   unsettledAmount: number
+  /** Current calendar month (1st - last day) raw spend, for this card only. */
+  calendarMonthSpend: number
+  /** Current calendar month (1st - last day) effective spend (adjustments applied), for this card only. */
+  calendarMonthEffectiveSpend: number
+  /** This card's statement whose statementMonth is exactly the previous calendar month; 0 if none. */
+  lastMonthStatementTotal: number
   trend: {
     pct: number | null
     direction: 'up' | 'down' | 'flat' | 'none'
@@ -48,6 +54,7 @@ type CardCycleSummaryRow = {
 export type CardCycleSummaryResponse = {
   totalCycleSpend: number
   totalEffectiveCycleSpend: number
+  calendarMonthSpend: number
   calendarMonthEffectiveSpend: number
   totalStatementDues: number
   totalUnsettled: number
@@ -58,6 +65,11 @@ export type CardCycleSummaryResponse = {
 type BillingWindow = {
   start: Date
   endExclusive: Date
+}
+
+type CalendarMonthByCardEntry = {
+  rawSpend: number
+  effectiveSpend: number
 }
 
 @Injectable()
@@ -89,6 +101,7 @@ export class CardCycleSummaryService {
       return {
         totalCycleSpend: 0,
         totalEffectiveCycleSpend: 0,
+        calendarMonthSpend: 0,
         calendarMonthEffectiveSpend: 0,
         totalStatementDues: 0,
         totalUnsettled: 0,
@@ -97,8 +110,10 @@ export class CardCycleSummaryService {
       }
     }
 
+    const cardIds = cards.map((card) => card.id)
+
     const latestStatements = await this.prisma.statement.findMany({
-      where: { tenantId, cardId: { in: cards.map((card) => card.id) } },
+      where: { tenantId, cardId: { in: cardIds } },
       select: {
         id: true,
         cardId: true,
@@ -116,6 +131,9 @@ export class CardCycleSummaryService {
     for (const statement of latestStatements) {
       if (!latestByCardId.has(statement.cardId)) latestByCardId.set(statement.cardId, statement)
     }
+
+    const calendarMonthByCard = await this.computeCalendarMonthByCard(tenantId, cardIds, now)
+    const lastMonthStatementByCard = await this.getLastMonthStatementByCard(tenantId, cardIds, now)
 
     const rows: CardCycleSummaryRow[] = []
 
@@ -143,6 +161,7 @@ export class CardCycleSummaryService {
       const minDue = latest ? Number(latest.minimumAmountDue) : 0
       const trendPct =
         statementTotal > 0 ? Number((((settled.sumAmount - statementTotal) / statementTotal) * 100).toFixed(1)) : null
+      const calendarMonth = calendarMonthByCard.get(card.id) ?? { rawSpend: 0, effectiveSpend: 0 }
 
       rows.push({
         cardId: card.id,
@@ -174,6 +193,9 @@ export class CardCycleSummaryService {
         missingLatestStatement: !latest,
         canManualUpdate: !latest || statementSyncPending,
         unsettledAmount,
+        calendarMonthSpend: calendarMonth.rawSpend,
+        calendarMonthEffectiveSpend: calendarMonth.effectiveSpend,
+        lastMonthStatementTotal: lastMonthStatementByCard.get(card.id) ?? 0,
         trend: {
           pct: trendPct,
           direction: this.getTrendDirection(trendPct),
@@ -183,22 +205,18 @@ export class CardCycleSummaryService {
 
     const totalCycleSpend = rows.reduce((sum, row) => sum + row.cycleSpend, 0)
     const totalEffectiveCycleSpend = roundMoney(rows.reduce((sum, row) => sum + row.effectiveCycleSpend, 0))
-    const calendarMonthEffectiveSpend = await this.getCalendarMonthEffectiveSpend(
-      tenantId,
-      cards.map((card) => card.id),
-      now,
+    const calendarMonthSpend = roundMoney(rows.reduce((sum, row) => sum + row.calendarMonthSpend, 0))
+    const calendarMonthEffectiveSpend = roundMoney(
+      rows.reduce((sum, row) => sum + row.calendarMonthEffectiveSpend, 0),
     )
     const totalStatementDues = rows.reduce((sum, row) => sum + row.statementTotal, 0)
     const totalUnsettled = rows.reduce((sum, row) => sum + row.unsettledAmount, 0)
-    const lastMonthStatementTotal = await this.getLastMonthStatementTotal(
-      tenantId,
-      cards.map((card) => card.id),
-      now,
-    )
+    const lastMonthStatementTotal = rows.reduce((sum, row) => sum + row.lastMonthStatementTotal, 0)
 
     return {
       totalCycleSpend,
       totalEffectiveCycleSpend,
+      calendarMonthSpend,
       calendarMonthEffectiveSpend,
       totalStatementDues,
       totalUnsettled,
@@ -208,18 +226,89 @@ export class CardCycleSummaryService {
   }
 
   /**
-   * Sum of each card's statement whose statementMonth is exactly the previous
-   * calendar month (not "latest per card" - a card's own latest statement may
-   * already be for the running month once its cycle day has passed). This is
-   * intentionally stable for the whole month: it only flips over on the 1st.
+   * Per-card current calendar month (1st - last day) spend, both raw and effective.
+   * A single query drives both the per-card breakdown (Wallet card tiles) and the
+   * aggregate totals returned from getSummary - avoids a second round trip.
    */
-  private async getLastMonthStatementTotal(tenantId: string, cardIds: string[], now: Date): Promise<number> {
+  private async computeCalendarMonthByCard(
+    tenantId: string,
+    cardIds: string[],
+    now: Date,
+  ): Promise<Map<string, CalendarMonthByCardEntry>> {
+    const monthKey = formatMonthKey(now)
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const monthEndExclusive = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    const amortizeWindowStart = new Date(now.getFullYear(), now.getMonth() - 60, 1)
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        tenantId,
+        cardId: { in: cardIds },
+        txnDate: {
+          gte: amortizeWindowStart,
+          lt: monthEndExclusive,
+        },
+      },
+      select: {
+        cardId: true,
+        amount: true,
+        txnDate: true,
+        adjustment: {
+          select: {
+            type: true,
+            personalShare: true,
+            amortizeMonths: true,
+          },
+        },
+      },
+    })
+
+    const byCard = new Map<string, CalendarMonthByCardEntry>()
+    for (const cardId of cardIds) byCard.set(cardId, { rawSpend: 0, effectiveSpend: 0 })
+
+    for (const transaction of transactions) {
+      const entry = byCard.get(transaction.cardId)
+      if (!entry) continue
+      const transactionDate = new Date(transaction.txnDate)
+      const amount = Number(transaction.amount)
+      if (transactionDate >= monthStart && transactionDate < monthEndExclusive) {
+        entry.rawSpend += amount
+      }
+      entry.effectiveSpend += effectiveForCalendarMonth(
+        amount,
+        transactionDate,
+        monthKey,
+        this.mapAdjustment(transaction.adjustment),
+      )
+    }
+
+    for (const entry of byCard.values()) {
+      entry.rawSpend = roundMoney(entry.rawSpend)
+      entry.effectiveSpend = roundMoney(entry.effectiveSpend)
+    }
+    return byCard
+  }
+
+  /**
+   * Per-card statement whose statementMonth is exactly the previous calendar
+   * month (not "latest per card" - a card's own latest statement may already
+   * be for the running month once its cycle day has passed). Stable for the
+   * whole month: it only flips over on the 1st.
+   */
+  private async getLastMonthStatementByCard(
+    tenantId: string,
+    cardIds: string[],
+    now: Date,
+  ): Promise<Map<string, number>> {
     const previousMonthKey = this.formatMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1))
     const statements = await this.prisma.statement.findMany({
       where: { tenantId, cardId: { in: cardIds }, statementMonth: previousMonthKey },
-      select: { totalAmountDue: true },
+      select: { cardId: true, totalAmountDue: true },
     })
-    return statements.reduce((sum, s) => sum + Number(s.totalAmountDue), 0)
+    const byCard = new Map<string, number>()
+    for (const statement of statements) {
+      byCard.set(statement.cardId, (byCard.get(statement.cardId) ?? 0) + Number(statement.totalAmountDue))
+    }
+    return byCard
   }
 
   private async findTransactionsWithAdjustments(cardId: string, tenantId: string, window: BillingWindow) {
@@ -244,50 +333,6 @@ export class CardCycleSummaryService {
         },
       },
     })
-  }
-
-  private async getCalendarMonthEffectiveSpend(tenantId: string, cardIds: string[], now: Date): Promise<number> {
-    const monthKey = formatMonthKey(now)
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    const monthEndExclusive = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-    const amortizeWindowStart = new Date(now.getFullYear(), now.getMonth() - 60, 1)
-    const transactions = await this.prisma.transaction.findMany({
-      where: {
-        tenantId,
-        cardId: { in: cardIds },
-        txnDate: {
-          gte: amortizeWindowStart,
-          lt: monthEndExclusive,
-        },
-      },
-      select: {
-        amount: true,
-        txnDate: true,
-        adjustment: {
-          select: {
-            type: true,
-            personalShare: true,
-            amortizeMonths: true,
-          },
-        },
-      },
-    })
-
-    return roundMoney(
-      transactions.reduce((sum, transaction) => {
-        const transactionDate = new Date(transaction.txnDate)
-        if (!transaction.adjustment && transactionDate < monthStart) return sum
-        return (
-          sum +
-          effectiveForCalendarMonth(
-            Number(transaction.amount),
-            transactionDate,
-            monthKey,
-            this.mapAdjustment(transaction.adjustment),
-          )
-        )
-      }, 0),
-    )
   }
 
   private mapAdjustment(adjustment: {

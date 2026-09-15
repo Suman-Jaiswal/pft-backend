@@ -57,13 +57,15 @@ describe('CardCycleSummaryService', () => {
   })
 
   it('uses SPLIT personal share and one AMORTIZE slice for effective cycle spend', async () => {
-    const transactions = [
+        const transactions = [
       {
+        cardId: 'card-1',
         amount: 1000,
         txnDate: new Date(2026, 7, 2),
         adjustment: { type: 'SPLIT', personalShare: 250, amortizeMonths: null },
       },
       {
+        cardId: 'card-1',
         amount: 1200,
         txnDate: new Date(2026, 7, 3),
         adjustment: { type: 'AMORTIZE', personalShare: null, amortizeMonths: 12 },
@@ -78,8 +80,10 @@ describe('CardCycleSummaryService', () => {
       effectiveCycleSpend: 350,
       adjustedAmount: 1850,
     })
-    expect(summary.totalEffectiveCycleSpend).toBe(350)
+        expect(summary.totalEffectiveCycleSpend).toBe(350)
     expect(summary.calendarMonthEffectiveSpend).toBe(350)
+    expect(summary.cards[0].calendarMonthSpend).toBe(2200)
+    expect(summary.cards[0].calendarMonthEffectiveSpend).toBe(350)
   })
 
   it('reports cycleStart/cycleEnd as local calendar dates, not UTC-shifted', async () => {
@@ -130,8 +134,11 @@ describe('CardCycleSummaryService', () => {
     // its cycle day has passed - that must NOT be double-counted here; only
     // statements whose statementMonth is precisely "2026-07" should count.
     prisma.statement.findMany.mockImplementation(({ where }: { where: { statementMonth?: string } }) => {
-      if (where.statementMonth === '2026-07') {
-        return Promise.resolve([{ totalAmountDue: 4500 }, { totalAmountDue: 1200 }])
+            if (where.statementMonth === '2026-07') {
+        return Promise.resolve([
+          { cardId: 'card-1', totalAmountDue: 4500 },
+          { cardId: 'card-1', totalAmountDue: 1200 },
+        ])
       }
       return Promise.resolve([
         {
@@ -148,8 +155,9 @@ describe('CardCycleSummaryService', () => {
     })
     prisma.transaction.findMany.mockResolvedValue([])
 
-    const summary = await service.getSummary('tenant-1')
+        const summary = await service.getSummary('tenant-1')
 
     expect(summary.lastMonthStatementTotal).toBe(5700)
+    expect(summary.cards[0].lastMonthStatementTotal).toBe(5700)
   })
 })
