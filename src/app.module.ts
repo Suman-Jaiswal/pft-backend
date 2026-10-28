@@ -16,6 +16,7 @@ import { ImportJobsModule } from '@/modules/import-jobs/import-jobs.module'
 import { GoalsModule } from '@/modules/goals/goals.module'
 import { FdLedgerModule } from '@/modules/fd-ledger/fd-ledger.module'
 import { InvestmentsModule } from '@/modules/investments/investments.module'
+import { ScratchPadsModule } from '@/modules/scratch-pads/scratch-pads.module'
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { InvestmentsModule } from '@/modules/investments/investments.module'
     BillsModule,
     LoansModule,
     GoalsModule,
+    ScratchPadsModule,
     CardsModule,
     StatementsModule,
     TransactionsModule,
