@@ -397,3 +397,17 @@ model PftBaseline {
   @@unique([tenantId, periodKey, version], map: "uq_pft_baseline_tenant_period_version")
   @@index([tenantId, periodKey], map: "idx_pft_baseline_tenant_period")
 }
+
+model ScratchPad {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  sortOrder Int      @default(0)
+  workbook  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+  updatedBy String
+
+  @@index([tenantId, sortOrder], map: "idx_scratch_pads_tenant_sort")
+}
