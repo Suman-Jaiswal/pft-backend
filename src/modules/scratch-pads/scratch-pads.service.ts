@@ -9,6 +9,7 @@ export type ScratchPadListItem = {
   id: string
   name: string
   sortOrder: number
+  googleSpreadsheetId: string | null
   updatedAt: string
   createdAt: string
 }
@@ -29,17 +30,12 @@ export class ScratchPadsService {
         id: true,
         name: true,
         sortOrder: true,
+        googleSpreadsheetId: true,
         updatedAt: true,
         createdAt: true,
       },
     })
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      sortOrder: row.sortOrder,
-      updatedAt: row.updatedAt.toISOString(),
-      createdAt: row.createdAt.toISOString(),
-    }))
+    return rows.map((row) => this.toListItem(row))
   }
 
   async get(tenantId: string, id: string): Promise<ScratchPadDetail> {
@@ -64,6 +60,8 @@ export class ScratchPadsService {
     })
     const sortOrder = dto.sortOrder ?? (maxSort._max.sortOrder ?? -1) + 1
     const workbook = (dto.workbook ?? {}) as Prisma.InputJsonValue
+    const googleSpreadsheetId = this.normalizeSheetId(dto.googleSpreadsheetId)
+    await this.assertSheetIdAvailable(tenantId, googleSpreadsheetId)
 
     const row = await this.prisma.scratchPad.create({
       data: {
@@ -72,6 +70,7 @@ export class ScratchPadsService {
         name,
         sortOrder,
         workbook,
+        googleSpreadsheetId,
         createdBy: actorId,
         updatedBy: actorId,
       },
@@ -101,6 +100,11 @@ export class ScratchPadsService {
     if (dto.workbook !== undefined) {
       data.workbook = dto.workbook as Prisma.InputJsonValue
     }
+    if (dto.googleSpreadsheetId !== undefined) {
+      const googleSpreadsheetId = this.normalizeSheetId(dto.googleSpreadsheetId)
+      await this.assertSheetIdAvailable(tenantId, googleSpreadsheetId, id)
+      data.googleSpreadsheetId = googleSpreadsheetId
+    }
 
     const row = await this.prisma.scratchPad.update({
       where: { id },
@@ -116,21 +120,66 @@ export class ScratchPadsService {
     if (result.count === 0) throw new NotFoundException('Scratch pad not found.')
   }
 
+  private normalizeSheetId(value: string | null | undefined): string | null {
+    if (value === undefined) return null
+    if (value === null) return null
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    return trimmed
+  }
+
+  /** Each pad must link a distinct Google Sheet (null = unlinked is fine on many pads). */
+  private async assertSheetIdAvailable(
+    tenantId: string,
+    googleSpreadsheetId: string | null,
+    excludePadId?: string,
+  ): Promise<void> {
+    if (!googleSpreadsheetId) return
+    const clash = await this.prisma.scratchPad.findFirst({
+      where: {
+        tenantId,
+        googleSpreadsheetId,
+        ...(excludePadId ? { id: { not: excludePadId } } : {}),
+      },
+      select: { id: true, name: true },
+    })
+    if (clash) {
+      throw new BadRequestException(
+        `That Google Sheet is already linked to “${clash.name}”. Use a different sheet for this pad.`,
+      )
+    }
+  }
+
+  private toListItem(row: {
+    id: string
+    name: string
+    sortOrder: number
+    googleSpreadsheetId: string | null
+    updatedAt: Date
+    createdAt: Date
+  }): ScratchPadListItem {
+    return {
+      id: row.id,
+      name: row.name,
+      sortOrder: row.sortOrder,
+      googleSpreadsheetId: row.googleSpreadsheetId,
+      updatedAt: row.updatedAt.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+    }
+  }
+
   private toDetail(row: {
     id: string
     name: string
     sortOrder: number
+    googleSpreadsheetId: string | null
     workbook: Prisma.JsonValue
     updatedAt: Date
     createdAt: Date
   }): ScratchPadDetail {
     return {
-      id: row.id,
-      name: row.name,
-      sortOrder: row.sortOrder,
+      ...this.toListItem(row),
       workbook: this.asObject(row.workbook),
-      updatedAt: row.updatedAt.toISOString(),
-      createdAt: row.createdAt.toISOString(),
     }
   }
 
