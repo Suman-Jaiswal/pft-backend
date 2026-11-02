@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsInt, IsObject, IsOptional, IsString, Min, MinLength } from 'class-validator'
+import { IsInt, IsObject, IsOptional, IsString, Min, MinLength, ValidateIf } from 'class-validator'
 
 export class CreateScratchPadDto {
   @ApiProperty({ example: 'Scratch 1' })
@@ -7,10 +7,19 @@ export class CreateScratchPadDto {
   @MinLength(1)
   name!: string
 
-  @ApiPropertyOptional({ description: 'Univer workbook snapshot JSON' })
+  @ApiPropertyOptional({ description: 'Legacy workbook snapshot JSON (unused for Google embeds)' })
   @IsOptional()
   @IsObject()
   workbook?: Record<string, unknown>
+
+  @ApiPropertyOptional({
+    description: 'Google Spreadsheet id to embed (from sheet URL). Null/omit = unlinked.',
+    nullable: true,
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  googleSpreadsheetId?: string | null
 
   @ApiPropertyOptional()
   @IsOptional()

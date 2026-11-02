@@ -399,15 +399,17 @@ model PftBaseline {
 }
 
 model ScratchPad {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  sortOrder Int      @default(0)
-  workbook  Json     @default("{}")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  createdBy String
-  updatedBy String
+  id                   String   @id @default(cuid())
+  tenantId             String
+  name                 String
+  sortOrder            Int      @default(0)
+  workbook             Json     @default("{}")
+  /// Linked Google Sheet id for iframe embed (option 1). Future auto-create fills this via Sheets API.
+  googleSpreadsheetId  String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  createdBy            String
+  updatedBy            String
 
   @@index([tenantId, sortOrder], map: "idx_scratch_pads_tenant_sort")
 }
